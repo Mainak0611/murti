@@ -3,17 +3,18 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-// 🛑 UPDATED: Import the global route registration function
 import registerRoutes from "./routes.js"; 
+// ^ Ensure this import is below dotenv.config() for safety,
+// though in ESM it's often hoisted, loading it first is safer.
 
+// 1. Load environment variables FIRST
 dotenv.config(); 
 const app = express();
 
-// 1. CORS Middleware 
+// 2. CORS Middleware 
 app.use(
   cors({
     origin: "http://localhost:5173",
-    // Ensure PATCH method is included
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     credentials: true,
   })
@@ -21,15 +22,14 @@ app.use(
 
 app.use(express.json());
 
-// 2. Define Routes using the global route registration
-// 🛑 NEW: Call the function to register all module routes 🛑
+// 3. Define Routes using the global route registration
 registerRoutes(app); 
 
-// 3. Fallback/Test Route (Optional - Keep for general server check)
+// 4. Fallback/Test Route
 app.get('/', (req, res) => {
     res.send("Backend server is running.");
 });
 
-// 4. Start server (Use the port defined by .env or 5001)
+// 5. Start server (Uses the port defined by .env or 5001)
 const PORT = process.env.PORT || 5001; 
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));

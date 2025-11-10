@@ -38,10 +38,10 @@ function PaymentTracker() {
   ];
   
   const DATA_KEYS = [
-    "id", "Party", "Contact No", 
+    "id", "party", "contact_no", 
     "payment_status", 
-    "Latest Payment Date", 
-    "Latest Remark",       
+    "latest_payment", 
+    "latest_remark",       
     "Action"
   ];
 
@@ -66,26 +66,26 @@ function PaymentTracker() {
   const filteredPayments = useMemo(() => {
     let list = payments;
     
-    // 1. Search Filter (by Party or Contact No)
+    // 1. Search Filter (by party or contact_no)
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       list = list.filter(p => 
-        (p.Party && String(p.Party).toLowerCase().includes(term)) ||
-        (p['Contact No'] && String(p['Contact No']).toLowerCase().includes(term))
+        (p.party && String(p.party).toLowerCase().includes(term)) ||
+        (p.contact_no && String(p.contact_no).toLowerCase().includes(term))
       );
     }
 
-    // 2. Date Filter (by Latest Payment Date)
+    // 2. Date Filter (by latest_payment)
     if (filterDate) {
       // Normalize filter date for comparison
       const filterDay = new Date(filterDate);
       filterDay.setHours(0, 0, 0, 0);
 
       list = list.filter(p => {
-        if (!p['Latest Payment Date']) return false;
+        if (!p.latest_payment) return false;
         
         // Normalize payment date for comparison
-        const paymentDay = new Date(p['Latest Payment Date']);
+        const paymentDay = new Date(p.latest_payment);
         paymentDay.setHours(0, 0, 0, 0);
         
         // Compare timestamps
@@ -93,11 +93,11 @@ function PaymentTracker() {
       });
     }
 
-    // 3. Sort by Latest Payment Date (if sortOrder is not 'none')
+    // 3. Sort by latest_payment (if sortOrder is not 'none')
     if (sortOrder !== 'none') {
       list = [...list].sort((a, b) => {
-        const dateA = a['Latest Payment Date'];
-        const dateB = b['Latest Payment Date'];
+        const dateA = a.latest_payment;
+        const dateB = b.latest_payment;
         
         // Records without dates always go to the bottom
         if (!dateA && !dateB) return 0;
@@ -145,24 +145,27 @@ function PaymentTracker() {
     setTrackingHistory([]);
   };
   
-  // handleAddTrackingEntry now ONLY adds date/remark
+  // 🛑 FIX: handleAddTrackingEntry now sends date and remark separately. 
+  // Assume backend uses `newDate` to update the main record's `latest_payment`.
   const handleAddTrackingEntry = async (e) => {
     e.preventDefault();
-    if (!newDate && !newRemark) {
-      alert("Please enter at least a date or a remark.");
+    if (!newDate) {
+      alert("Please enter a date for the new entry.");
       return;
     }
 
     try {
       await api.post(`/api/payments/tracking/${managePaymentId}`, { 
-        date: newDate, 
-        remark: newRemark
+        // 🛑 Sending newDate and newRemark separately 🛑
+        entry_date: newDate, 
+        remark: newRemark || null
       });
       // Refresh history and inputs
       await fetchTrackingHistory(managePaymentId); 
       setNewRemark('');
       setNewDate('');
-      fetchPayments(); // Refresh main table (for latest date/remark)
+      // Refresh main table to show updated LATEST DATE and LATEST REMARK
+      fetchPayments(); 
     } catch (err) {
       console.error("Failed to add tracking entry:", err);
       alert("Failed to save entry.");
@@ -302,7 +305,6 @@ function PaymentTracker() {
         </form>
         
         {/* MODIFIED: SEARCH AND FILTER CONTROLS */}
-        {/* ... (rest of the filter controls remain the same) ... */}
         <div className="filter-controls">
           <input
             type="text"
@@ -346,7 +348,6 @@ function PaymentTracker() {
         )}
 
         {/* Payment Table */}
-        {/* ... (table rendering logic remains the same) ... */}
         {loading ? (
           <p className="payment-loading">Loading payment records...</p>
         ) : payments.length === 0 ? (
@@ -368,7 +369,7 @@ function PaymentTracker() {
                   let rowClassName = isEven ? 'table-tr even' : 'table-tr';
                   
                   // Highlight logic uses the LATEST DATE fetched from the DB join
-                  if (shouldHighlightRow(p['Latest Payment Date'])) {
+                  if (shouldHighlightRow(p.latest_payment)) {
                     rowClassName += ' highlight-row';
                   }
 
@@ -414,17 +415,18 @@ function PaymentTracker() {
                           );
                         }
                         
-                        // Latest Date column - format for display
-                        if (key === 'Latest Payment Date') {
+                        // Latest Date column - format for display (This is the column that needed the fix)
+                        if (key === 'latest_payment') {
                           return (
                             <td key={key} className="table-td">
+                              {/* This now correctly displays the date if the backend updates it */}
                               {formatDateForDisplay(p[key])}
                             </td>
                           );
                         }
                         
                         // Latest Remark column
-                        if (key === 'Latest Remark') {
+                        if (key === 'latest_remark') {
                           return (
                             <td key={key} className="table-td">
                               {p[key] || 'None'}
@@ -454,7 +456,6 @@ function PaymentTracker() {
         )}
 
         {/* TRACKING MODAL */}
-        {/* ... (tracking modal rendering remains the same) ... */}
         {managePaymentId !== null && (
           <div className="modal-overlay">
             <div className="modal-content">
@@ -467,14 +468,13 @@ function PaymentTracker() {
                       type="date" 
                       value={newDate} 
                       onChange={(e) => setNewDate(e.target.value)} 
-                      required={!newRemark}
+                      required // Date is required for a log entry
                   />
                   <input 
                       type="text" 
                       value={newRemark} 
                       onChange={(e) => setNewRemark(e.target.value)} 
                       placeholder="Enter Remark (Optional)" 
-                      required={!newDate}
                   />
                   <button type="submit" className="upload-button">Add New Entry</button>
               </form>
@@ -490,10 +490,15 @@ function PaymentTracker() {
                           {trackingHistory.map((entry) => (
                               <li key={entry.id}>
                                   <div>
-                                      <strong>Date:</strong> {formatDateForDisplay(entry.actual_payment_date)} 
-                                      | <strong>Remark:</strong> {entry.remark || 'None'}
+                                      {entry.actual_payment && (
+                                        <>
+                                          <strong>Date:</strong> {formatDateForDisplay(entry.actual_payment)}
+                                          <br />
+                                        </>
+                                      )}
+                                      <strong>Remark:</strong> {entry.remark || 'No remark'}
                                       <br />
-                                      <small>Created on: {formatDateForDisplay(entry.created_at)}</small>
+                                      <small>Logged on: {formatDateForDisplay(entry.created_at)}</small>
                                   </div>
                                   
                                   {/* Status Selector in History Item */}

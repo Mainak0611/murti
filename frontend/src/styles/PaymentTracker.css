@@ -34,7 +34,7 @@
     border: 2px solid #e0e0e0;
     border-radius: 10px;
     font-size: 14px;
-    transition: all 0.3s ease;
+    /* REMOVED: transition: all 0.3s ease; */
     background: #f8f9fa;
     min-width: 200px;
 }
@@ -54,20 +54,20 @@
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.3s ease;
+    /* REMOVED: transition: all 0.3s ease; */
     box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
     white-space: nowrap;
 }
 
 .upload-button:hover {
-    transform: translateY(-2px);
+    /* REMOVED: transform: translateY(-2px); */
     box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
 }
 
 .upload-button:disabled {
     background: linear-gradient(135deg, #ccc 0%, #999 100%);
     cursor: not-allowed;
-    transform: none;
+    /* REMOVED: transform: none; */
     box-shadow: none;
 }
 
@@ -101,7 +101,7 @@
     border: 2px solid #e0e0e0;
     border-radius: 10px;
     font-size: 14px;
-    transition: all 0.3s ease;
+    /* REMOVED: transition: all 0.3s ease; */
     background: #f8f9fa;
 }
 
@@ -140,19 +140,9 @@
     margin-bottom: 25px;
     font-weight: 600;
     text-align: center;
-    animation: slideDown 0.3s ease-out;
 }
 
-@keyframes slideDown {
-    from {
-        opacity: 0;
-        transform: translateY(-10px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
+/* REMOVED: @keyframes slideDown */
 
 .message.success {
     background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
@@ -215,13 +205,13 @@
 }
 
 .table-tr {
-    transition: all 0.3s ease;
+    /* REMOVED: transition: all 0.3s ease; */
     border-bottom: 1px solid #f0f0f0;
 }
 
 .table-tr:hover {
     background-color: #f8f9fa;
-    transform: scale(1.01);
+    /* REMOVED: transform: scale(1.01); */
 }
 
 .table-tr.even {
@@ -232,9 +222,18 @@
     background-color: #f5f5f5;
 }
 
+/* Highlight Row Style for Today's Date */
 .table-tr.highlight-row {
-    background: linear-gradient(90deg, rgba(102, 126, 234, 0.15) 0%, transparent 100%);
-    border-left: 4px solid #667eea;
+    /* Darkened background color from #e6e8fc to #dce0fa */
+    background: #dce0fa; 
+    border-left: 6px solid #667eea; 
+    /* Increased shadow opacity slightly to match new background */
+    box-shadow: 0 0 10px rgba(102, 126, 234, 0.3); 
+}
+
+/* Ensure the hover state is also updated for the highlighted row */
+.table-tr.highlight-row:hover {
+    background-color: #d1d5f3; /* Darkened hover color */
 }
 
 .table-td {
@@ -258,12 +257,12 @@
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.3s ease;
+    /* REMOVED: transition: all 0.3s ease; */
     box-shadow: 0 3px 10px rgba(102, 126, 234, 0.3);
 }
 
 .manage-button:hover {
-    transform: translateY(-2px);
+    /* REMOVED: transform: translateY(-2px); */
     box-shadow: 0 5px 15px rgba(102, 126, 234, 0.5);
 }
 
@@ -275,22 +274,14 @@
     right: 0;
     bottom: 0;
     background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(5px);
+    /* REMOVED: backdrop-filter: blur(5px); */
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 2000;
-    animation: fadeIn 0.3s ease-out;
 }
 
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-    }
-    to {
-        opacity: 1;
-    }
-}
+/* REMOVED: @keyframes fadeIn */
 
 .modal-content {
     background: white;
@@ -302,19 +293,9 @@
     overflow-y: auto;
     position: relative;
     box-shadow: 0 15px 50px rgba(0, 0, 0, 0.3);
-    animation: slideUp 0.3s ease-out;
 }
 
-@keyframes slideUp {
-    from {
-        opacity: 0;
-        transform: translateY(30px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
+/* REMOVED: @keyframes slideUp */
 
 .modal-content h2 {
     font-size: 24px;
@@ -346,12 +327,12 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.3s ease;
+    /* REMOVED: transition: all 0.3s ease; */
     box-shadow: 0 3px 10px rgba(231, 76, 60, 0.3);
 }
 
 .modal-close:hover {
-    transform: rotate(90deg) scale(1.1);
+    /* REMOVED: transform: rotate(90deg) scale(1.1); */
     box-shadow: 0 5px 15px rgba(231, 76, 60, 0.5);
 }
 
@@ -373,7 +354,7 @@
     border: 2px solid #e0e0e0;
     border-radius: 10px;
     font-size: 14px;
-    transition: all 0.3s ease;
+    /* REMOVED: transition: all 0.3s ease; */
     min-width: 150px;
 }
 
@@ -409,11 +390,11 @@
     align-items: center;
     flex-wrap: wrap;
     gap: 15px;
-    transition: all 0.3s ease;
+    /* REMOVED: transition: all 0.3s ease; */
 }
 
 .history-list li:hover {
-    transform: translateX(5px);
+    /* REMOVED: transform: translateX(5px); */
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
@@ -438,7 +419,7 @@
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.3s ease;
+    /* REMOVED: transition: all 0.3s ease; */
     background: white;
 }
 
@@ -521,7 +502,7 @@
     border-radius: 6px;
     cursor: pointer;
     font-weight: 600;
-    transition: background-color 0.2s;
+    /* REMOVED: transition: background-color 0.2s; */
 }
 
 .cancel-button:hover {
@@ -537,7 +518,7 @@
     border-radius: 6px;
     cursor: pointer;
     font-weight: 600;
-    transition: background-color 0.2s;
+    /* REMOVED: transition: background-color 0.2s; */
 }
 
 .delete-confirm-button:hover {
