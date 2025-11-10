@@ -12,7 +12,10 @@ const db = mysql.createConnection({
 
 db.connect((err) => {
   if (err) {
-    console.error("Database connection failed:", err);
+    console.error("❌ Database connection failed:", err.message);
+    console.error("Please check your database configuration in .env file");
+    console.error("Exiting application...");
+    process.exit(1); // Exit the process with failure code
   } else {
     console.log("✅ Connected to MySQL Database");
   }

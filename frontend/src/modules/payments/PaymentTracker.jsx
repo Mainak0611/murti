@@ -1,12 +1,9 @@
-// frontend/src/modules/payments/PaymentTracker.jsx
-
 import { useEffect, useState, useMemo } from "react";
 import api from "../../lib/api";
 import '../../styles/PaymentTracker.css';
 import { 
     formatDateForDisplay, 
     getStatusDisplay 
-    // formatDateForInput is not needed here 
 } from "./PaymentUtils.js";
 
 
@@ -18,14 +15,18 @@ function PaymentTracker() {
   
   // State for search and filter
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterDate, setFilterDate] = useState(''); // Stores date string for filtering
-  const [sortOrder, setSortOrder] = useState('none'); // 'none', 'asc', or 'desc'
+  const [filterDate, setFilterDate] = useState(''); 
+  const [sortOrder, setSortOrder] = useState('none'); 
   
-  // State for the modal
+  // State for the tracking modal
   const [managePaymentId, setManagePaymentId] = useState(null);
+  const [managePaymentIndex, setManagePaymentIndex] = useState(null);
   const [trackingHistory, setTrackingHistory] = useState([]);
   const [newRemark, setNewRemark] = useState('');
   const [newDate, setNewDate] = useState('');
+  
+  // 🛑 NEW STATE FOR DELETE CONFIRMATION MODAL 🛑
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
   // Headers and Keys
   const ALL_HEADERS = [
@@ -130,8 +131,9 @@ function PaymentTracker() {
     }
   };
 
-  const openManageModal = (paymentId) => {
+  const openManageModal = (paymentId, displayIndex) => {
     setManagePaymentId(paymentId);
+    setManagePaymentIndex(displayIndex); // Store the display index
     fetchTrackingHistory(paymentId);
     setNewRemark('');
     setNewDate('');
@@ -139,6 +141,7 @@ function PaymentTracker() {
 
   const closeManageModal = () => {
     setManagePaymentId(null);
+    setManagePaymentIndex(null);
     setTrackingHistory([]);
   };
   
@@ -243,10 +246,19 @@ function PaymentTracker() {
     }
   };
 
+  // 🛑 NEW: Function to open delete modal 🛑
+  const openDeleteModal = () => {
+      setIsDeleteModalOpen(true);
+  };
+  
+  // 🛑 NEW: Function to close delete modal 🛑
+  const closeDeleteModal = () => {
+      setIsDeleteModalOpen(false);
+  };
+
   const handleDeleteAll = async () => {
-    if (!window.confirm('Are you sure you want to delete ALL your payment records? This cannot be undone.')) {
-      return;
-    }
+    // 🛑 Execute deletion and close modal 🛑
+    closeDeleteModal(); 
 
     setUploadMessage({ type: 'info', text: 'Deleting all records...' });
     try {
@@ -281,7 +293,7 @@ function PaymentTracker() {
           </button>
           <button 
             type="button" 
-            onClick={handleDeleteAll} 
+            onClick={openDeleteModal} // 🛑 CALL NEW OPEN MODAL FUNCTION 🛑
             className="upload-button delete-button"
             disabled={uploadMessage.type === 'info'}
           >
@@ -290,6 +302,7 @@ function PaymentTracker() {
         </form>
         
         {/* MODIFIED: SEARCH AND FILTER CONTROLS */}
+        {/* ... (rest of the filter controls remain the same) ... */}
         <div className="filter-controls">
           <input
             type="text"
@@ -333,6 +346,7 @@ function PaymentTracker() {
         )}
 
         {/* Payment Table */}
+        {/* ... (table rendering logic remains the same) ... */}
         {loading ? (
           <p className="payment-loading">Loading payment records...</p>
         ) : payments.length === 0 ? (
@@ -393,7 +407,7 @@ function PaymentTracker() {
                         if (key === 'Action') {
                           return (
                             <td key={key} className="table-td action-cell">
-                              <button onClick={() => openManageModal(p.id)} className="manage-button">
+                              <button onClick={() => openManageModal(p.id, index + 1)} className="manage-button">
                                 Manage
                               </button>
                             </td>
@@ -440,10 +454,11 @@ function PaymentTracker() {
         )}
 
         {/* TRACKING MODAL */}
+        {/* ... (tracking modal rendering remains the same) ... */}
         {managePaymentId !== null && (
           <div className="modal-overlay">
             <div className="modal-content">
-              <h2>Tracking History for ID: {managePaymentId}</h2>
+              <h2>Tracking History for Payment #{managePaymentIndex}</h2>
               <button className="modal-close" onClick={closeManageModal}>&times;</button>
               
               {/* Form to Add New Entry */}
@@ -498,6 +513,28 @@ function PaymentTracker() {
               </div>
             </div>
           </div>
+        )}
+        
+        {/* 🛑 DELETE CONFIRMATION MODAL 🛑 */}
+        {isDeleteModalOpen && (
+            <div className="modal-overlay">
+                <div className="modal-content delete-modal">
+                    <h2>⚠️ Confirm Deletion</h2>
+                    <p>
+                        Are you absolutely sure you want to DELETE ALL your payment records? 
+                        <br />
+                        This action cannot be undone.
+                    </p>
+                    <div className="modal-actions">
+                        <button className="cancel-button" onClick={closeDeleteModal}>
+                            Cancel
+                        </button>
+                        <button className="delete-confirm-button" onClick={handleDeleteAll}>
+                            Yes, Delete All Records
+                        </button>
+                    </div>
+                </div>
+            </div>
         )}
 
       </div>

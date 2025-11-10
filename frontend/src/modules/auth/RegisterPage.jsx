@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import api from '../../lib/api';
 import { Link, useNavigate } from 'react-router-dom';
+import '../../styles/AuthForm.css';
 
 const RegisterPage = () => {
     const [userId, setUserId] = useState('');
@@ -20,12 +21,17 @@ const RegisterPage = () => {
             // Send registration data to your backend endpoint
             const res = await api.post('/api/users/register', { userId, email, password });
             
-            setMessage(res.data.message || 'Registration successful! You can now log in.');
+            // Store the token and user info (auto-login)
+            localStorage.setItem('userToken', res.data.token);
+            localStorage.setItem('userId', res.data.userId);
+            localStorage.setItem('userName', userId); // Store the chosen username
             
-            // Optionally, redirect to the login page after a short delay
+            setMessage(res.data.message || 'Registration successful! Logging you in...');
+            
+            // Redirect to dashboard after successful registration
             setTimeout(() => {
-                navigate('/login');
-            }, 2000);
+                window.location.href = '/';
+            }, 1000);
             
         } catch (err) {
             // Handle errors from the server (e.g., "User already exists")

@@ -133,6 +133,7 @@
     border: 2px solid #fcc;
     border-radius: 10px;
     margin-top: 0;
+    z-index: 1;
 }
 
 .success-message {
@@ -144,6 +145,16 @@
     border: 2px solid #c3e6cb;
     border-radius: 10px;
     margin-top: 0;
+    z-index: 1;
+}
+
+.info-text {
+    text-align: center;
+    color: white;
+    font-size: 1rem;
+    margin-bottom: 20px;
+    z-index: 1;
+    font-weight: 500;
 }
 
 .link-text {

@@ -30,20 +30,31 @@ api.interceptors.request.use(
   }
 );
 
-// 3. Optional: Add a response interceptor to handle 401 errors globally
+// 3. Add a response interceptor to handle 401 errors globally (but NOT on login/auth pages)
 api.interceptors.response.use(
     (response) => response,
     (error) => {
         // If the server returns a 401 Unauthorized error (token expired/invalid)
         if (error.response && error.response.status === 401) {
-            console.warn("Session expired or token is invalid. Clearing credentials and redirecting to login.");
+            // Check if the request was to a public auth endpoint (login, register, forgot-password)
+            const publicEndpoints = ['/api/users/login', '/api/users/register', '/api/users/forgot-password', '/api/users/reset-password'];
+            const requestUrl = error.config?.url || '';
             
-            // Clear credentials and force a logout/redirect to login
-            localStorage.removeItem('userToken');
-            localStorage.removeItem('userId');
+            const isPublicEndpoint = publicEndpoints.some(endpoint => requestUrl.includes(endpoint));
             
-            // Redirect to login page with a full page refresh
-            window.location.href = '/login'; 
+            // Only redirect and clear credentials if it's NOT a public endpoint
+            // (i.e., user is trying to access protected routes with expired/invalid token)
+            if (!isPublicEndpoint) {
+                console.warn("Session expired or token is invalid. Clearing credentials and redirecting to login.");
+                
+                // Clear credentials and force a logout/redirect to login
+                localStorage.removeItem('userToken');
+                localStorage.removeItem('userId');
+                localStorage.removeItem('userName');
+                
+                // Redirect to login page with a full page refresh
+                window.location.href = '/login'; 
+            }
         }
         return Promise.reject(error);
     }

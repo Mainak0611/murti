@@ -30,7 +30,7 @@ const Sidebar = () => {
     return (
         <div className={`sidebar ${isCollapsed ? 'collapsed' : ''}`}>
             <div className="sidebar-header">
-                <h2 className="sidebar-logo">{isCollapsed ? 'M' : 'Murti'}</h2>
+                {!isCollapsed && <h2 className="sidebar-logo">Murti</h2>}
                 <button className="toggle-btn" onClick={toggleSidebar}>
                     {isCollapsed ? '☰' : '✕'}
                 </button>

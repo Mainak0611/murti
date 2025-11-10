@@ -494,3 +494,52 @@
         align-items: flex-start;
     }
 }
+
+/* --- DELETE CONFIRMATION MODAL STYLES --- */
+
+/* Ensures the modal container takes up less space and is centered */
+.delete-modal {
+    max-width: 400px; /* Make the modal slightly narrower */
+    text-align: center;
+    padding: 30px;
+}
+
+/* Styles for the button container */
+.modal-actions {
+    display: flex;
+    justify-content: center; /* Center the buttons */
+    gap: 15px;
+    margin-top: 25px;
+}
+
+/* Cancel Button (Neutral/Secondary Action) */
+.cancel-button {
+    background-color: #ecf0f1; /* Light neutral background */
+    color: #34495e; /* Darker text */
+    padding: 10px 20px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: background-color 0.2s;
+}
+
+.cancel-button:hover {
+    background-color: #bdc3c7;
+}
+
+/* Delete Confirm Button (Destructive/Primary Action) */
+.delete-confirm-button {
+    background-color: #e74c3c; /* Strong Red for Danger */
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: background-color 0.2s;
+}
+
+.delete-confirm-button:hover {
+    background-color: #c0392b; /* Darker red on hover */
+}
