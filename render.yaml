@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: murti-backend
+    env: node
+    region: oregon
+    repo: Mainak0611/my-app
+    branch: main
+    rootDirectory: backend
+    buildCommand: "npm install"
+    startCommand: "npm start"
+    plan: free
+    autoDeploy: true
