@@ -1,4 +1,4 @@
-// frontend/src/App.jsx (Updated with Layout, Sidebar, and HomePage)
+// frontend/src/App.jsx
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import Layout from "./components/Layout";
@@ -15,56 +15,62 @@ function App() {
 
   // Check authentication on mount
   useEffect(() => {
-    // Simulate checking authentication (in case of async operations in future)
     const checkAuth = () => {
       setIsAuthenticated(!!localStorage.getItem('userToken'));
       setIsLoading(false);
     };
-    
-    // Small delay to prevent flash
-    setTimeout(checkAuth, 100);
+    setTimeout(checkAuth, 500); // Slight delay for smooth transition
   }, []);
 
-  // Listen for storage changes (for logout from other tabs) and custom events
+  // Listen for storage changes & logout events
   useEffect(() => {
     const checkAuth = () => {
       setIsAuthenticated(!!localStorage.getItem('userToken'));
     };
-
-    // Listen for storage changes
     window.addEventListener('storage', checkAuth);
-    
-    // Listen for custom logout event
     window.addEventListener('logout', checkAuth);
-
     return () => {
       window.removeEventListener('storage', checkAuth);
       window.removeEventListener('logout', checkAuth);
     };
   }, []);
 
-  // Show loading screen while checking authentication
+  // --- Professional Loading Screen ---
   if (isLoading) {
     return (
       <div style={{
         display: 'flex',
+        flexDirection: 'column',
         justifyContent: 'center',
         alignItems: 'center',
         height: '100vh',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        color: 'white',
-        fontSize: '24px',
-        fontWeight: 'bold'
+        backgroundColor: '#f8fafc', // Slate 50
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
       }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '48px', marginBottom: '20px' }}>⏳</div>
-          Loading...
+        <style>{`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+          .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid #e2e8f0; /* Slate 200 */
+            border-top: 3px solid #059669; /* Emerald 600 */
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-bottom: 16px;
+          }
+        `}</style>
+        <div className="spinner"></div>
+        <div style={{ color: '#64748b', fontSize: '14px', fontWeight: '500' }}>
+          Loading Dashboard...
         </div>
       </div>
     );
   }
 
-  // If NOT authenticated, show only the login and registration pages
+  // --- Unauthenticated Routes ---
   if (!isAuthenticated) {
     return (
       <Router>
@@ -72,14 +78,13 @@ function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-          {/* Redirect all other requests to login */}
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </Router>
     );
   }
 
-  // If authenticated, show the full application with Layout
+  // --- Authenticated Routes (Protected) ---
   return (
     <Router>
       <Layout>
@@ -87,15 +92,18 @@ function App() {
           <Route path="/" element={<HomePage />} /> 
           <Route path="/payments" element={<PaymentTracker />} />
           <Route path="/change-password" element={<ChangePasswordPage />} />
-          {/* Add more authenticated routes here */}
-          {/* Redirect back to the main app if user tries to access /login or /register while logged in */}
+          
+          {/* Redirect generic auth paths back to dashboard if already logged in */}
           <Route path="/login" element={<Navigate to="/" replace />} /> 
           <Route path="/register" element={<Navigate to="/" replace />} />
           <Route path="/forgot-password" element={<Navigate to="/" replace />} />
+          
+          {/* Catch-all redirect */}
           <Route path="*" element={<Navigate to="/" replace />} /> 
         </Routes>
       </Layout>
     </Router>
   );
 }
+
 export default App;
