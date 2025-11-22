@@ -3,17 +3,14 @@ import pool from "../../config/db.js";
 import fs from "fs";
 import XLSX from "xlsx";
 
+// UPDATED: Only mapping the columns that exist in DB now
 const EXCEL_TO_SQL_MAP = [
-  'party', 'contact_no', 'last_r', 'rent_amount', 'rent_r',
-  'deposit', 'rent_r_plus_deposit', 'loading', 'transport',
-  'lost_damage_item', 'damage_lost', 'party_payment',
-  'total_amt', 'without_de'
+  'party', 
+  'contact_no'
 ];
 
-const NUMERIC_COLUMNS = new Set([
-  'rent_amount', 'deposit', 'rent_r_plus_deposit', 'loading',
-  'transport', 'total_amt', 'without_de'
-]);
+// UPDATED: No numeric money columns left to clean
+const NUMERIC_COLUMNS = new Set([]);
 
 const cleanNumericValue = (value) => {
   if (value === null || value === undefined || value === "") return null;
@@ -22,14 +19,21 @@ const cleanNumericValue = (value) => {
   return Number.isNaN(v) ? null : v;
 };
 
-// 1. GET CONTROLLER: Fetches payments with the LATEST tracking data joined
+// 1. GET CONTROLLER: Fetches payments
 export const getPayments = async (req, res) => {
   const userId = req.user.id;
 
+  // UPDATED: Explicitly selecting only the existing columns
   const sql = `
     SELECT
-      p.*,
-      (SELECT actual_payment FROM payment_tracking WHERE payment_id = p.id ORDER BY created_at DESC LIMIT 1) AS latest_payment,
+      p.id,
+      p.party,
+      p.contact_no,
+      p.payment_status,
+      p.user_id,
+      p.created_at,
+      p.date_count,
+      (SELECT payment_date FROM payment_tracking WHERE payment_id = p.id ORDER BY created_at DESC LIMIT 1) AS latest_payment,
       (SELECT remark FROM payment_tracking WHERE payment_id = p.id ORDER BY created_at DESC LIMIT 1) AS latest_remark
     FROM payments p
     WHERE p.user_id = $1
@@ -66,7 +70,6 @@ export const deleteAllPayments = async (req, res) => {
 export const uploadCSV = async (req, res) => {
   const userId = req.user.id;
   console.log('Upload called by user ID:', userId);
-  console.log('Full req.user:', req.user);
 
   if (!req.file) {
     return res.status(400).json({ error: "No file uploaded" });
@@ -89,7 +92,7 @@ export const uploadCSV = async (req, res) => {
       return res.status(400).json({ error: "File is empty." });
     }
 
-    // Find header row by searching for 'Party' (case-insensitive)
+    // Find header row
     let headerRowIndex = -1;
     for (let i = 0; i < rawSheetData.length; i++) {
       const row = rawSheetData[i];
@@ -100,7 +103,7 @@ export const uploadCSV = async (req, res) => {
     }
     if (headerRowIndex === -1) {
       fs.unlinkSync(filePath);
-      return res.status(400).json({ error: "Could not find the 'Party' header row in the file. Check file formatting." });
+      return res.status(400).json({ error: "Could not find the 'Party' header row in the file." });
     }
 
     const dataRows = rawSheetData.slice(headerRowIndex + 1);
@@ -117,56 +120,55 @@ export const uploadCSV = async (req, res) => {
 
       const record = {};
       headers.forEach((fileHeader, index) => {
-        // Map by position — if file has more/less columns, we only map known ones
+        // Map by position based on our simplified EXCEL_TO_SQL_MAP
+        // Index 0 -> party, Index 1 -> contact_no
         const sqlKey = EXCEL_TO_SQL_MAP[index];
         if (sqlKey) {
           const rawValue = row[index] !== undefined ? row[index] : null;
-          if (NUMERIC_COLUMNS.has(sqlKey)) {
-            record[sqlKey] = cleanNumericValue(rawValue);
-          } else {
-            record[sqlKey] = rawValue === "" ? null : rawValue;
-          }
+          record[sqlKey] = rawValue === "" ? null : rawValue;
         }
       });
-
-      // Ensure all mapped keys exist
-      EXCEL_TO_SQL_MAP.forEach(k => {
-        if (!(k in record)) record[k] = null;
-      });
-
+      
+      // Validation: Party is required
+      if (!record.party) return null;
+      
       return record;
-    }).filter(r => r !== null && r.party);
+    }).filter(r => r !== null);
 
-    // delete temp file
     try { fs.unlinkSync(filePath); } catch (e) { /* ignore */ }
 
   } catch (err) {
     try { fs.unlinkSync(filePath); } catch (e) { /* ignore */ }
-    console.error("File processing error (XLSX/CSV):", err);
-    return res.status(500).json({ error: "Failed to read file. Check file integrity or column order." });
+    console.error("File processing error:", err);
+    return res.status(500).json({ error: "Failed to read file." });
   }
 
   if (records.length === 0) {
-    return res.status(400).json({ error: "No valid data rows found after final cleaning." });
+    return res.status(400).json({ error: "No valid data rows found." });
   }
 
-  // Build insert - include payment_status with default 'PENDING'
+  // Insert logic: Only Party, Contact, Payment Status, User ID
   const columns = [...EXCEL_TO_SQL_MAP, 'payment_status', 'user_id'];
-  // Build placeholders for multi-row insert: ($1,$2,..,$N), ($N+1,...)
   const values = [];
   const rowPlaceholders = [];
 
   let paramIndex = 1;
   for (const rec of records) {
     const singleRowPlaceholders = [];
-    for (const col of EXCEL_TO_SQL_MAP) {
-      values.push(rec[col]);
-      singleRowPlaceholders.push(`$${paramIndex++}`);
-    }
-    // append payment_status (default PENDING)
+    
+    // 1. party
+    values.push(rec.party);
+    singleRowPlaceholders.push(`$${paramIndex++}`);
+    
+    // 2. contact_no
+    values.push(rec.contact_no);
+    singleRowPlaceholders.push(`$${paramIndex++}`);
+
+    // 3. payment_status (default PENDING)
     values.push('PENDING');
     singleRowPlaceholders.push(`$${paramIndex++}`);
-    // append user_id
+    
+    // 4. user_id
     values.push(userId);
     singleRowPlaceholders.push(`$${paramIndex++}`);
 
@@ -175,37 +177,20 @@ export const uploadCSV = async (req, res) => {
 
   const sql = `INSERT INTO payments (${columns.join(', ')}) VALUES ${rowPlaceholders.join(', ')}`;
 
-  // Debug logging
-  console.log('=== UPLOAD DEBUG ===');
-  console.log('Columns:', columns);
-  console.log('Number of records:', records.length);
-  console.log('First record:', records[0]);
-  console.log('SQL:', sql.substring(0, 200) + '...');
-  console.log('First 5 values:', values.slice(0, 5));
-
-  // Use transaction for safety
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const insertResult = await client.query(sql, values);
     await client.query('COMMIT');
 
-    // insertResult.rowCount gives number of rows inserted
     res.status(201).json({
-      message: `${insertResult.rowCount} records uploaded successfully for user ${userId}.`,
+      message: `${insertResult.rowCount} records uploaded successfully.`,
       rowsInserted: insertResult.rowCount
     });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
-    console.error("Database insert error (uploadCSV):", err);
-    console.error("SQL Query:", sql);
-    console.error("Values:", values);
-    console.error("Error details:", err.message);
-    console.error("Error stack:", err.stack);
-    res.status(500).json({
-      error: "Failed to insert data into database. Check column data types and header names. See server console for details.",
-      details: err.message
-    });
+    console.error("Database insert error:", err);
+    res.status(500).json({ error: "Failed to insert data.", details: err.message });
   } finally {
     client.release();
   }
@@ -214,7 +199,7 @@ export const uploadCSV = async (req, res) => {
 // 4. ADD TRACKING ENTRY
 export const addTrackingEntry = async (req, res) => {
   const { paymentId } = req.params;
-  const { entry_date, remark } = req.body;  // Accept entry_date from frontend
+  const { entry_date, remark } = req.body; 
   const userId = req.user.id;
 
   if (!entry_date && !remark) {
@@ -222,18 +207,17 @@ export const addTrackingEntry = async (req, res) => {
   }
 
   try {
-    // Verify ownership
     const ownership = await pool.query('SELECT id FROM payments WHERE id = $1 AND user_id = $2', [paymentId, userId]);
     if (ownership.rowCount === 0) {
       return res.status(404).json({ error: "Payment record not found or unauthorized." });
     }
 
     const insertSql = `
-      INSERT INTO payment_tracking (payment_id, actual_payment, remark)
+      INSERT INTO payment_tracking (payment_id, payment_date, remark)
       VALUES ($1, $2, $3)
       RETURNING id;
     `;
-    // Store entry_date in actual_payment column (as TEXT/DATE)
+    
     const { rows } = await pool.query(insertSql, [paymentId, entry_date || null, remark || null]);
     res.status(201).json({ message: "Tracking entry added successfully.", id: rows[0].id });
   } catch (err) {
@@ -250,11 +234,12 @@ export const getTrackingEntries = async (req, res) => {
   try {
     const ownership = await pool.query('SELECT id FROM payments WHERE id = $1 AND user_id = $2', [paymentId, userId]);
     if (ownership.rowCount === 0) {
-      return res.status(404).json({ error: "Payment record not found or unauthorized to view history." });
+      return res.status(404).json({ error: "Payment record not found or unauthorized." });
     }
 
+    // UPDATED: Aliased 'payment_date' to 'actual_payment'
     const sql = `
-      SELECT id, actual_payment, remark, created_at
+      SELECT id, payment_date AS actual_payment, remark, created_at
       FROM payment_tracking
       WHERE payment_id = $1
       ORDER BY created_at DESC

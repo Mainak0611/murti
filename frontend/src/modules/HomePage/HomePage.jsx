@@ -3,11 +3,14 @@ import { Link } from "react-router-dom";
 import api from "../../lib/api"; // Ensure this path is correct
 
 export default function HomePage() {
-  // State for Stats - Only 2 items now
+  // State for Stats
   const [stats, setStats] = useState([
     { id: 1, label: "Total Records", value: "0" },
     { id: 2, label: "Pending", value: "0" },
   ]);
+  
+  // State for "Due Today" table
+  const [todaysPayments, setTodaysPayments] = useState([]);
   
   const [loading, setLoading] = useState(true);
 
@@ -18,17 +21,30 @@ export default function HomePage() {
         const res = await api.get("/api/payments");
         const data = res.data;
 
-        // 1. Total Payments (Count of all records)
+        // 1. Total & Pending Counts
         const totalCount = data.length;
-
-        // 2. Pending (Count where status is PENDING)
         const pendingCount = data.filter(p => p.payment_status === 'PENDING').length;
 
-        // Update State (Removed This Month & Overdue)
+        // 2. Filter for TODAY'S PAYMENTS (FIXED: Uses Local Time)
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const todayStr = `${year}-${month}-${day}`; // e.g. "2025-11-23"
+
+        const dueToday = data.filter(p => {
+          if (!p.latest_payment) return false; 
+          // Extract YYYY-MM-DD from the record string safely
+          const recordDateStr = String(p.latest_payment).substring(0, 10);
+          return recordDateStr === todayStr;
+        });
+
+        // Update States
         setStats([
           { id: 1, label: "Total Records", value: totalCount.toString() },
           { id: 2, label: "Pending", value: pendingCount.toString() },
         ]);
+        setTodaysPayments(dueToday);
 
       } catch (err) {
         console.error("Error fetching dashboard data:", err);
@@ -66,16 +82,7 @@ export default function HomePage() {
           color: var(--text-main);
           padding: 40px 20px;
           position: relative;
-          overflow: hidden;
-        }
-
-        .dashboard-container::before {
-          content: '';
-          position: absolute;
-          top: 0; left: 0; right: 0; bottom: 0;
-          background: radial-gradient(circle at 85% 10%, rgba(16, 185, 129, 0.08) 0%, transparent 500px);
-          pointer-events: none;
-          z-index: 0;
+          overflow-y: auto;
         }
 
         .wrapper {
@@ -115,10 +122,23 @@ export default function HomePage() {
 
         .btn-primary {
           background-color: var(--primary);
-          color: white;
+          color: white !important; /* Ensure text is white by default */
           box-shadow: 0 2px 4px rgba(5, 150, 105, 0.2);
         }
-        .btn-primary:hover { background-color: var(--primary-hover); transform: translateY(-1px); }
+        
+        /* FIXED HOVER: Darker Green BG + White Text */
+        .btn-primary:hover { 
+            background-color: var(--primary-hover); 
+            color: white !important; /* Force white text on hover */
+            transform: translateY(-1px); 
+            box-shadow: 0 4px 6px rgba(5, 150, 105, 0.3);
+        }
+        
+        .btn-sm-outline {
+            padding: 4px 12px; font-size: 12px; border: 1px solid var(--border); 
+            background: white; color: var(--text-main); border-radius: 6px;
+        }
+        .btn-sm-outline:hover { background: #f8fafc; }
 
         .main-grid {
           display: grid; grid-template-columns: 2fr 1fr; gap: 24px; margin-bottom: 24px;
@@ -131,6 +151,7 @@ export default function HomePage() {
           border-radius: 16px;
           padding: 24px;
           box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+          overflow: hidden;
         }
 
         /* Hero Card */
@@ -142,7 +163,7 @@ export default function HomePage() {
           display: flex; align-items: center; justify-content: center;
           color: white; flex-shrink: 0;
         }
-        /* UPDATED GRID to support only 2 items nicely */
+        
         .stats-grid {
           display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top: 24px;
         }
@@ -171,27 +192,41 @@ export default function HomePage() {
         }
         .action-text h4 { margin: 0; font-size: 14px; font-weight: 600; color: var(--text-main); }
         .action-text p { margin: 0; font-size: 12px; color: var(--text-muted); }
-        .badge {
-          font-size: 10px; font-weight: 700; text-transform: uppercase;
-          padding: 2px 6px; border-radius: 4px; background: #fef3c7; color: #92400e; margin-right: 8px;
+
+        /* Updated Table Wrapper */
+        .table-wrapper { 
+            width: 100%; 
+            margin-top: 16px;
+            max-height: 1000px; 
+            overflow-y: auto;
+            border: 1px solid var(--border);
+            border-radius: 8px;
         }
 
-        /* Table */
-        .table-header {
-          display: flex; justify-content: space-between; align-items: center;
-          padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--border);
-        }
-        .view-link { color: var(--primary); font-weight: 600; font-size: 14px; text-decoration: none; }
         table { width: 100%; border-collapse: collapse; font-size: 14px; }
-        th { text-align: left; color: var(--text-muted); font-size: 12px; text-transform: uppercase; padding: 12px 8px; }
-        td { padding: 14px 8px; border-bottom: 1px solid #f1f5f9; color: var(--text-main); }
-        .status { padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
-        .status.paid { background: #ecfdf5; color: #065f46; }
-        .status.pending { background: #fffbeb; color: #92400e; }
+        
+        th { 
+            text-align: left; 
+            color: var(--text-muted); 
+            font-size: 12px; 
+            text-transform: uppercase; 
+            padding: 12px 16px; 
+            background: #f8fafc; 
+            font-weight: 600;
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
 
-        /* Metrics */
-        .metrics-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-top: 20px; }
-        .metric { text-align: center; background: #f8fafc; padding: 12px; border-radius: 8px; }
+        td { padding: 12px 16px; border-bottom: 1px solid #f1f5f9; color: var(--text-main); vertical-align: middle; }
+        tr:last-child td { border-bottom: none; }
+        
+        .status-pill {
+            display: inline-block; padding: 3px 10px; border-radius: 20px;
+            font-size: 11px; font-weight: 700; text-transform: uppercase;
+        }
+        .empty-state { text-align: center; padding: 40px; color: var(--text-muted); font-size: 14px; }
       `}</style>
 
       <div className="wrapper">
@@ -248,18 +283,73 @@ export default function HomePage() {
                     </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center' }}>
-                    {c.badge && <span className="badge">{c.badge}</span>}
-                    {c.soon ? (
-                      <span style={{ fontSize: '10px', fontWeight: 'bold', color: '#94a3b8', textTransform: 'uppercase' }}>SOON</span>
-                    ) : (
-                      <Icons.ChevronRight />
-                    )}
+                    <Icons.ChevronRight />
                   </div>
                 </Link>
               ))}
             </div>
           </div>
         </div>
+
+        {/* --- NEW SECTION: PAYMENTS DUE TODAY --- */}
+        <div className="card">
+            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                <div>
+                    <h3 style={{ fontSize: '18px', margin: 0, fontWeight: 700 }}>Due Today</h3>
+                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '4px 0 0 0' }}>
+                        Records scheduled for {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}
+                    </p>
+                </div>
+                {todaysPayments.length > 0 && <span className="status-pill" style={{background: '#dbeafe', color: '#1e40af'}}>
+                   {todaysPayments.length} Record{todaysPayments.length !== 1 ? 's' : ''}
+                </span>}
+            </div>
+
+            <div className="table-wrapper">
+                {todaysPayments.length === 0 ? (
+                    <div className="empty-state">
+                        No payments found for today.
+                    </div>
+                ) : (
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Party Name</th>
+                                <th>Contact</th>
+                                <th>Remark</th>
+                                <th>Status</th>
+                                <th style={{textAlign: 'right'}}>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {todaysPayments.map((p) => (
+                                <tr key={p.id}>
+                                    <td style={{fontWeight: 600}}>{p.party}</td>
+                                    <td>{p.contact_no}</td>
+                                    <td style={{maxWidth: '200px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text-muted)'}}>
+                                        {p.latest_remark || '-'}
+                                    </td>
+                                    <td>
+                                        <span className="status-pill" style={{
+                                            backgroundColor: p.payment_status === 'PAID' ? '#d1fae5' : p.payment_status === 'PARTIAL' ? '#ffedd5' : '#fee2e2',
+                                            color: p.payment_status === 'PAID' ? '#065f46' : p.payment_status === 'PARTIAL' ? '#9a3412' : '#991b1b'
+                                        }}>
+                                            {p.payment_status}
+                                        </span>
+                                    </td>
+                                    <td style={{textAlign: 'right'}}>
+                                        <Link to="/payments" className="btn-sm-outline" style={{textDecoration: 'none'}}>
+                                            View
+                                        </Link>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                )}
+            </div>
+        </div>
+
       </div>
     </div>
   );

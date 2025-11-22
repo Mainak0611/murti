@@ -12,9 +12,10 @@ function PaymentTracker() {
   const [file, setFile] = useState(null);
   const [uploadMessage, setUploadMessage] = useState({ type: null, text: '' });
   
-  // State for search and filter
+  // --- FILTER STATES ---
   const [searchTerm, setSearchTerm] = useState('');
   const [filterDate, setFilterDate] = useState(''); 
+  const [filterStatus, setFilterStatus] = useState('ALL'); // <--- NEW STATE
   const [sortOrder, setSortOrder] = useState('none'); 
   
   // State for the tracking modal
@@ -28,8 +29,8 @@ function PaymentTracker() {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
   // Headers and Keys
-  const ALL_HEADERS = ["ID", "Party", "Contact No", "Status", "Latest Date", "Latest Remark", "Action"];
-  const DATA_KEYS = ["id", "party", "contact_no", "payment_status", "latest_payment", "latest_remark", "Action"];
+  const ALL_HEADERS = ["ID", "Party", "Contact No", "Status", "Dates Given", "Latest Date", "Latest Remark", "Action"];
+  const DATA_KEYS = ["id", "party", "contact_no", "payment_status", "date_count", "latest_payment", "latest_remark", "Action"];
 
   // Fetch payments
   const fetchPayments = async () => {
@@ -52,6 +53,7 @@ function PaymentTracker() {
   const filteredPayments = useMemo(() => {
     let list = payments;
     
+    // 1. Search Term Filter
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       list = list.filter(p => 
@@ -60,6 +62,7 @@ function PaymentTracker() {
       );
     }
 
+    // 2. Date Filter
     if (filterDate) {
       const filterDay = new Date(filterDate);
       filterDay.setHours(0, 0, 0, 0);
@@ -72,6 +75,12 @@ function PaymentTracker() {
       });
     }
 
+    // 3. Status Filter (NEW)
+    if (filterStatus !== 'ALL') {
+      list = list.filter(p => p.payment_status === filterStatus);
+    }
+
+    // 4. Sorting
     if (sortOrder !== 'none') {
       list = [...list].sort((a, b) => {
         const dateA = a.latest_payment;
@@ -86,7 +95,7 @@ function PaymentTracker() {
       });
     }
     return list;
-  }, [payments, searchTerm, filterDate, sortOrder]);
+  }, [payments, searchTerm, filterDate, filterStatus, sortOrder]);
 
   // --- TRACKING MANAGEMENT ---
   const fetchTrackingHistory = async (paymentId) => {
@@ -123,10 +132,12 @@ function PaymentTracker() {
         entry_date: newDate, 
         remark: newRemark || null
       });
+      
       await fetchTrackingHistory(managePaymentId); 
+      fetchPayments(); 
+      
       setNewRemark('');
       setNewDate('');
-      fetchPayments(); 
     } catch (err) {
       console.error("Failed to add tracking entry:", err);
       alert("Failed to save entry.");
@@ -137,6 +148,11 @@ function PaymentTracker() {
     if (!newStatus || !managePaymentId) return;
     try {
         await api.patch(`/api/payments/${managePaymentId}/status`, { newStatus: newStatus });
+        
+        setPayments(prev => prev.map(p => 
+            p.id === managePaymentId ? { ...p, payment_status: newStatus } : p
+        ));
+
         fetchPayments(); 
     } catch (err) {
         console.error("Failed to update status:", err);
@@ -194,6 +210,12 @@ function PaymentTracker() {
       const msg = err.response?.data?.error || 'Delete failed.';
       setUploadMessage({ type: 'error', text: msg });
     }
+  };
+  
+  const clearAllFilters = () => {
+    setSearchTerm('');
+    setFilterDate('');
+    setFilterStatus('ALL');
   };
 
   return (
@@ -279,7 +301,7 @@ function PaymentTracker() {
         /* Filters */
         .filter-bar {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
           gap: 16px;
           align-items: end;
         }
@@ -306,7 +328,7 @@ function PaymentTracker() {
           text-transform: uppercase; font-size: 12px; letter-spacing: 0.05em;
           border-bottom: 1px solid var(--border);
         }
-        .data-table td { padding: 14px 16px; border-bottom: 1px solid var(--border); color: var(--text-main); }
+        .data-table td { padding: 8px 16px; border-bottom: 1px solid var(--border); color: var(--text-main); }
         .data-table tr:last-child td { border-bottom: none; }
         .data-table tr:hover { background: #f8fafc; }
         
@@ -315,8 +337,16 @@ function PaymentTracker() {
 
         /* Status Pills */
         .status-pill {
-          display: inline-block; padding: 5px 12px; border-radius: 20px;
+          display: inline-block; padding: 3px 10px; border-radius: 20px;
           font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        
+        /* Count Badge */
+        .count-badge {
+            background: #e2e8f0; color: #475569;
+            padding: 2px 8px; border-radius: 12px;
+            font-size: 12px; font-weight: 700;
+            min-width: 24px; display: inline-block; text-align: center;
         }
 
         /* Modal */
@@ -352,7 +382,6 @@ function PaymentTracker() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Payment Records</h1>
-          <p style={{color: 'var(--text-muted)', margin: '4px 0 0', fontSize: '15px'}}>Manage, track and update all transaction records.</p>
         </div>
       </div>
 
@@ -413,6 +442,21 @@ function PaymentTracker() {
             />
           </div>
 
+          {/* --- NEW: FILTER BY STATUS --- */}
+          <div className="form-group">
+            <label className="form-label">Filter by Status</label>
+            <select
+              className="form-select"
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+            >
+              <option value="ALL">All Statuses</option>
+              <option value="PENDING">Pending</option>
+              <option value="PARTIAL">Partial</option>
+              <option value="PAID">Paid</option>
+            </select>
+          </div>
+
           <div className="form-group">
             <label className="form-label">Sort Order</label>
             <select
@@ -426,8 +470,8 @@ function PaymentTracker() {
             </select>
           </div>
 
-          {filterDate && (
-            <button onClick={() => setFilterDate('')} className="btn btn-outline">
+          {(filterDate || searchTerm || filterStatus !== 'ALL') && (
+            <button onClick={clearAllFilters} className="btn btn-outline">
               Clear Filters
             </button>
           )}
@@ -448,7 +492,7 @@ function PaymentTracker() {
               <thead>
                 <tr>
                   {ALL_HEADERS.map((header, index) => (
-                    <th key={index}>{header}</th> 
+                    <th key={index} style={header === "Dates Given" ? {textAlign: 'center'} : {}}>{header}</th> 
                   ))}
                 </tr>
               </thead>
@@ -462,7 +506,7 @@ function PaymentTracker() {
                         // Index Column
                         if (key === 'id') return <td key={key} style={{color: 'var(--text-muted)'}}>#{index + 1}</td>;
                         
-                        // Status Column - Styled as Pill
+                        // Status Column
                         if (key === 'payment_status') {
                           const statusData = getStatusDisplay(p[key]);
                           return (
@@ -480,12 +524,23 @@ function PaymentTracker() {
                             </td>
                           );
                         }
+
+                        // Count Column
+                        if (key === 'date_count') {
+                            return (
+                                <td key={key} style={{textAlign: 'center'}}>
+                                    <span className="count-badge">
+                                        {p[key] || 0} 
+                                    </span>
+                                </td>
+                            );
+                        }
                         
                         // Action Column
                         if (key === 'Action') {
                           return (
                             <td key={key}>
-                              <button onClick={() => openManageModal(p.id, index + 1)} className="btn btn-outline" style={{padding: '6px 12px', fontSize: '12px'}}>
+                              <button onClick={() => openManageModal(p.id, index + 1)} className="btn btn-outline" style={{padding: '4px 12px', fontSize: '12px'}}>
                                 Manage
                               </button>
                             </td>
