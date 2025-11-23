@@ -1,6 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
 import api from "../../lib/api";
-// Removed external CSS import to use internal styled-system
 import { 
     formatDateForDisplay, 
     getStatusDisplay 
@@ -14,8 +13,8 @@ function PaymentTracker() {
   
   // --- FILTER STATES ---
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterDate, setFilterDate] = useState(''); 
-  const [filterStatus, setFilterStatus] = useState('ALL'); // <--- NEW STATE
+  const [filterMonth, setFilterMonth] = useState('ALL'); // NEW: Month Filter
+  const [filterStatus, setFilterStatus] = useState('ALL'); 
   const [sortOrder, setSortOrder] = useState('none'); 
   
   // State for the tracking modal
@@ -28,9 +27,9 @@ function PaymentTracker() {
   // Delete Confirmation Modal
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
-  // Headers and Keys
-  const ALL_HEADERS = ["ID", "Party", "Contact No", "Status", "Dates Given", "Latest Date", "Latest Remark", "Action"];
-  const DATA_KEYS = ["id", "party", "contact_no", "payment_status", "date_count", "latest_payment", "latest_remark", "Action"];
+  // Headers and Keys - UPDATED with Month/Year
+  const ALL_HEADERS = ["ID", "Party", "Month", "Year", "Contact", "Status", "Dates", "Last Activity", "Remark", "Action"];
+  const DATA_KEYS = ["id", "party", "month", "year", "contact_no", "payment_status", "date_count", "latest_payment", "latest_remark", "Action"];
 
   // Fetch payments
   const fetchPayments = async () => {
@@ -49,6 +48,17 @@ function PaymentTracker() {
     fetchPayments();
   }, []);
 
+  // --- DERIVE AVAILABLE MONTHS FOR DROPDOWN ---
+  const availableMonths = useMemo(() => {
+    const unique = new Set();
+    payments.forEach(p => {
+      if(p.month && p.year) {
+        unique.add(`${p.month} ${p.year}`);
+      }
+    });
+    return Array.from(unique);
+  }, [payments]);
+
   // --- FILTERING LOGIC ---
   const filteredPayments = useMemo(() => {
     let list = payments;
@@ -62,25 +72,17 @@ function PaymentTracker() {
       );
     }
 
-    // 2. Date Filter
-    if (filterDate) {
-      const filterDay = new Date(filterDate);
-      filterDay.setHours(0, 0, 0, 0);
-
-      list = list.filter(p => {
-        if (!p.latest_payment) return false;
-        const paymentDay = new Date(p.latest_payment);
-        paymentDay.setHours(0, 0, 0, 0);
-        return paymentDay.getTime() === filterDay.getTime();
-      });
+    // 2. Month Filter (NEW)
+    if (filterMonth !== 'ALL') {
+      list = list.filter(p => `${p.month} ${p.year}` === filterMonth);
     }
 
-    // 3. Status Filter (NEW)
+    // 3. Status Filter
     if (filterStatus !== 'ALL') {
       list = list.filter(p => p.payment_status === filterStatus);
     }
 
-    // 4. Sorting
+    // 4. Manual Sorting Override (Backend already does basic sort)
     if (sortOrder !== 'none') {
       list = [...list].sort((a, b) => {
         const dateA = a.latest_payment;
@@ -95,7 +97,7 @@ function PaymentTracker() {
       });
     }
     return list;
-  }, [payments, searchTerm, filterDate, filterStatus, sortOrder]);
+  }, [payments, searchTerm, filterMonth, filterStatus, sortOrder]);
 
   // --- TRACKING MANAGEMENT ---
   const fetchTrackingHistory = async (paymentId) => {
@@ -161,35 +163,24 @@ function PaymentTracker() {
   };
 
   // --- HELPER FUNCTIONS ---
-  const shouldHighlightRow = (latestPaymentDate) => {
-    if (!latestPaymentDate) return false;
-    const targetDate = new Date(latestPaymentDate);
-    targetDate.setHours(0, 0, 0, 0); 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0); 
-    return targetDate.getTime() === today.getTime();
-  };
-  
   const handleUpload = async (e) => {
     e.preventDefault();
     if (!file) {
       setUploadMessage({ type: 'error', text: 'Please select a file first.' });
       return;
     }
-    setUploadMessage({ type: 'info', text: 'Uploading...' });
+    setUploadMessage({ type: 'info', text: 'Uploading & creating monthly reminders...' });
     const formData = new FormData();
     formData.append('csvFile', file); 
 
     try {
       const token = localStorage.getItem('userToken');
-      if (!token) {
-        setUploadMessage({ type: 'error', text: 'Authentication token missing.' });
-        return; 
-      }
+      if (!token) return; 
+      
       const res = await api.post("/api/payments/upload", formData, {
         headers: { 'Content-Type': 'multipart/form-data', 'Authorization': `Bearer ${token}` }
       });
-      setUploadMessage({ type: 'success', text: res.data.message || 'Upload successful!' });
+      setUploadMessage({ type: 'success', text: res.data.message });
       setFile(null); 
       document.getElementById('file-input').value = null; 
       fetchPayments(); 
@@ -201,10 +192,10 @@ function PaymentTracker() {
 
   const handleDeleteAll = async () => {
     setIsDeleteModalOpen(false);
-    setUploadMessage({ type: 'info', text: 'Deleting all records...' });
+    setUploadMessage({ type: 'info', text: 'Deleting all history...' });
     try {
       const res = await api.delete("/api/payments"); 
-      setUploadMessage({ type: 'success', text: res.data.message || 'All records deleted!' });
+      setUploadMessage({ type: 'success', text: res.data.message });
       fetchPayments(); 
     } catch (err) {
       const msg = err.response?.data?.error || 'Delete failed.';
@@ -214,13 +205,12 @@ function PaymentTracker() {
   
   const clearAllFilters = () => {
     setSearchTerm('');
-    setFilterDate('');
+    setFilterMonth('ALL');
     setFilterStatus('ALL');
   };
 
   return (
     <div className="dashboard-container">
-      {/* --- INTERNAL CSS FOR PROFESSIONAL DASHBOARD LOOK --- */}
       <style>{`
         :root {
           --bg-body: #f8fafc;
@@ -230,10 +220,8 @@ function PaymentTracker() {
           --primary: #059669;
           --primary-hover: #047857;
           --danger: #ef4444;
-          --danger-hover: #dc2626;
           --border: #e2e8f0;
           --highlight-bg: #d1fae5;
-          --highlight-border: #86efac;
         }
         .dashboard-container {
           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -242,22 +230,7 @@ function PaymentTracker() {
           padding: 40px 20px;
           color: var(--text-main);
         }
-        .page-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 24px;
-          flex-wrap: wrap;
-          gap: 16px;
-        }
-        .page-title {
-          font-size: 32px;
-          font-weight: 800;
-          color: var(--text-main);
-          margin: 0;
-        }
-        
-        /* Card Styling */
+        .page-title { font-size: 32px; font-weight: 800; margin-bottom: 24px; }
         .card {
           background: var(--bg-card);
           border: 1px solid var(--border);
@@ -266,130 +239,37 @@ function PaymentTracker() {
           margin-bottom: 24px;
           box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         }
-        
-        /* Upload Section */
-        .upload-area {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          flex-wrap: wrap;
-        }
-        .file-input {
-          padding: 8px;
-          border: 1px solid var(--border);
-          border-radius: 6px;
-          background: #f8fafc;
-          font-size: 14px;
-        }
-        
-        /* Buttons */
+        .upload-area { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .file-input { padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: #f8fafc; }
         .btn {
           display: inline-flex; align-items: center; gap: 8px;
-          padding: 10px 16px; border-radius: 8px;
-          font-size: 15px; font-weight: 600; cursor: pointer; border: none; transition: all 0.2s;
+          padding: 10px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none;
         }
         .btn-primary { background: var(--primary); color: white; }
-        .btn-primary:hover { background: var(--primary-hover); }
-        .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
-        
         .btn-danger { background: #fff1f2; color: var(--danger); border: 1px solid #fecdd3; }
-        .btn-danger:hover { background: #fee2e2; }
-
         .btn-outline { background: white; border: 1px solid var(--border); color: var(--text-main); }
-        .btn-outline:hover { background: #f8fafc; }
         
-        /* Filters */
-        .filter-bar {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-          gap: 16px;
-          align-items: end;
-        }
-        .form-group { display: flex; flex-direction: column; gap: 6px; }
+        .filter-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; align-items: end; }
         .form-label { font-size: 13px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; }
-        .form-input, .form-select {
-          padding: 10px; border: 1px solid var(--border); border-radius: 6px;
-          font-size: 15px; width: 100%;
-        }
-        .form-input:focus { outline: 2px solid var(--primary); border-color: transparent; }
-
-        /* Messages */
-        .alert { padding: 12px; border-radius: 6px; font-size: 15px; margin-bottom: 16px; font-weight: 500; }
-        .alert.info { background: #eff6ff; color: #1d4ed8; border: 1px solid #dbeafe; }
-        .alert.success { background: #ecfdf5; color: #047857; border: 1px solid #d1fae5; }
-        .alert.error { background: #fef2f2; color: #b91c1c; border: 1px solid #fee2e2; }
-
-        /* Table */
+        .form-input, .form-select { padding: 10px; border: 1px solid var(--border); border-radius: 6px; width: 100%; }
+        
         .table-container { overflow-x: auto; border-radius: 8px; border: 1px solid var(--border); }
         .data-table { width: 100%; border-collapse: collapse; font-size: 15px; text-align: left; }
-        .data-table th { 
-          background: #f8fafc; color: var(--text-muted); 
-          font-weight: 600; padding: 12px 16px; 
-          text-transform: uppercase; font-size: 12px; letter-spacing: 0.05em;
-          border-bottom: 1px solid var(--border);
-        }
-        .data-table td { padding: 8px 16px; border-bottom: 1px solid var(--border); color: var(--text-main); }
-        .data-table tr:last-child td { border-bottom: none; }
-        .data-table tr:hover { background: #f8fafc; }
+        .data-table th { background: #f8fafc; color: var(--text-muted); font-weight: 600; padding: 12px 16px; font-size: 12px; text-transform: uppercase; }
+        .data-table td { padding: 8px 16px; border-bottom: 1px solid var(--border); }
+        .status-pill { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; text-transform: uppercase; }
         
-        .highlight-row { background-color: var(--highlight-bg) !important; }
-        .highlight-row td { font-weight: 600; color: #064e3b; }
-
-        /* Status Pills */
-        .status-pill {
-          display: inline-block; padding: 3px 10px; border-radius: 20px;
-          font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
-        }
-        
-        /* Count Badge */
-        .count-badge {
-            background: #e2e8f0; color: #475569;
-            padding: 2px 8px; border-radius: 12px;
-            font-size: 12px; font-weight: 700;
-            min-width: 24px; display: inline-block; text-align: center;
-        }
-
-        /* Modal */
-        .modal-overlay {
-          position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-          background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px);
-          display: flex; justify-content: center; align-items: center; z-index: 1000;
-        }
-        .modal-content {
-          background: white; padding: 32px; border-radius: 16px;
-          width: 90%; max-width: 600px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
-          position: relative;
-        }
-        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-        .modal-title { font-size: 22px; font-weight: 700; margin: 0; }
-        .modal-close { background: none; border: none; font-size: 28px; cursor: pointer; color: var(--text-muted); }
-        
-        .tracking-form { display: flex; gap: 12px; margin-bottom: 24px; padding-bottom: 24px; border-bottom: 1px solid var(--border); }
-        .history-list { max-height: 300px; overflow-y: auto; }
-        .history-item { 
-          padding: 12px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 12px;
-          display: flex; justify-content: space-between; align-items: flex-start;
-        }
-        .history-meta { font-size: 14px; color: var(--text-muted); margin-top: 4px; }
-        .history-remark { font-weight: 500; color: var(--text-main); font-size: 15px; }
-        
-        /* Delete Modal Specifics */
-        .delete-content { text-align: center; max-width: 400px; }
-        .warning-icon { font-size: 48px; margin-bottom: 16px; display: block; }
-        .delete-actions { display: flex; justify-content: center; gap: 12px; margin-top: 24px; }
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.6); display: flex; justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background: white; padding: 32px; border-radius: 16px; width: 90%; max-width: 600px; }
       `}</style>
 
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Payment Records</h1>
-        </div>
-      </div>
+      <h1 className="page-title">Payment Reminders</h1>
 
-      {/* --- ACTION CARD: Upload & Global Actions --- */}
+      {/* --- UPLOAD SECTION --- */}
       <div className="card">
         <form onSubmit={handleUpload} className="upload-area">
           <div style={{flex: 1, display: 'flex', gap: '12px', alignItems: 'center'}}>
-            <label className="form-label">Import Data</label>
+            <label className="form-label">New Month Sheet</label>
             <input 
               id="file-input"
               type="file" 
@@ -398,267 +278,200 @@ function PaymentTracker() {
               className="file-input"
             />
             <button type="submit" disabled={!file || uploadMessage.type === 'info'} className="btn btn-primary">
-              <Icons.Upload /> {uploadMessage.type === 'info' ? 'Processing...' : 'Upload File'}
+              <Icons.Upload /> {uploadMessage.type === 'info' ? 'Processing...' : 'Upload & Append'}
             </button>
           </div>
           
           <button type="button" onClick={() => setIsDeleteModalOpen(true)} className="btn btn-danger">
-            <Icons.Trash /> Delete All Records
+            <Icons.Trash /> Clear All History
           </button>
         </form>
 
         {uploadMessage.text && (
-          <div className={`alert ${uploadMessage.type}`} style={{marginTop: '16px', marginBottom: 0}}>
+          <div style={{
+            marginTop: '16px', padding: '12px', borderRadius: '6px', fontSize: '14px',
+            background: uploadMessage.type === 'error' ? '#fef2f2' : '#ecfdf5',
+            color: uploadMessage.type === 'error' ? '#b91c1c' : '#047857'
+          }}>
             {uploadMessage.text}
           </div>
         )}
       </div>
 
-      {/* --- FILTER CARD --- */}
+      {/* --- FILTER SECTION --- */}
       <div className="card">
         <div className="filter-bar">
           <div className="form-group">
-            <label className="form-label">Search</label>
-            <div style={{position: 'relative'}}>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="Party Name or Contact..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                style={{paddingLeft: '32px'}}
-              />
-              <span style={{position: 'absolute', left: '10px', top: '10px', color: '#94a3b8'}}><Icons.Search /></span>
-            </div>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">Filter by Date</label>
+            <label className="form-label">Search Party</label>
             <input
-              type="date"
+              type="text"
               className="form-input"
-              value={filterDate}
-              onChange={(e) => setFilterDate(e.target.value)}
+              placeholder="Name or Contact..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
 
-          {/* --- NEW: FILTER BY STATUS --- */}
+          {/* NEW MONTH FILTER */}
           <div className="form-group">
-            <label className="form-label">Filter by Status</label>
+            <label className="form-label">Filter Month</label>
+            <select
+              className="form-select"
+              value={filterMonth}
+              onChange={(e) => setFilterMonth(e.target.value)}
+            >
+              <option value="ALL">All Months (Show Carry Forward)</option>
+              {availableMonths.map(m => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Status</label>
             <select
               className="form-select"
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
             >
               <option value="ALL">All Statuses</option>
-              <option value="PENDING">Pending</option>
-              <option value="PARTIAL">Partial</option>
-              <option value="PAID">Paid</option>
+              <option value="PENDING">Pending Only</option>
+              <option value="PAID">Paid Only</option>
             </select>
           </div>
 
           <div className="form-group">
-            <label className="form-label">Sort Order</label>
+            <label className="form-label">Sort</label>
             <select
               className="form-select"
               value={sortOrder}
               onChange={(e) => setSortOrder(e.target.value)}
             >
-              <option value="none">Default (No Sort)</option>
-              <option value="asc">Oldest First</option>
-              <option value="desc">Newest First</option>
+              <option value="none">Default (Pending First)</option>
+              <option value="asc">Last Payment (Oldest)</option>
+              <option value="desc">Last Payment (Newest)</option>
             </select>
           </div>
-
-          {(filterDate || searchTerm || filterStatus !== 'ALL') && (
-            <button onClick={clearAllFilters} className="btn btn-outline">
-              Clear Filters
-            </button>
-          )}
         </div>
       </div>
 
-      {/* --- TABLE CARD --- */}
+      {/* --- TABLE SECTION --- */}
       <div className="card" style={{padding: 0, overflow: 'hidden'}}>
         {loading ? (
-          <div style={{padding: '40px', textAlign: 'center', color: 'var(--text-muted)'}}>Loading records...</div>
-        ) : payments.length === 0 ? (
-          <div style={{padding: '40px', textAlign: 'center', color: 'var(--text-muted)'}}>
-            No payment records found. Upload a file to begin.
-          </div>
+          <div style={{padding: '40px', textAlign: 'center'}}>Loading...</div>
         ) : (
           <div className="table-container" style={{border: 'none', borderRadius: 0}}>
             <table className="data-table">
               <thead>
                 <tr>
                   {ALL_HEADERS.map((header, index) => (
-                    <th key={index} style={header === "Dates Given" ? {textAlign: 'center'} : {}}>{header}</th> 
+                    <th key={index}>{header}</th> 
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {filteredPayments.map((p, index) => { 
-                  const isHighlighted = shouldHighlightRow(p.latest_payment);
-                  
-                  return (
-                    <tr key={p.id} className={isHighlighted ? 'highlight-row' : ''}>
-                      {DATA_KEYS.map((key) => {
-                        // Index Column
-                        if (key === 'id') return <td key={key} style={{color: 'var(--text-muted)'}}>#{index + 1}</td>;
-                        
-                        // Status Column
-                        if (key === 'payment_status') {
-                          const statusData = getStatusDisplay(p[key]);
-                          return (
-                            <td key={key}>
-                              <span 
-                                className="status-pill"
-                                style={{ 
-                                  backgroundColor: statusData.bgColor, 
-                                  color: statusData.color || 'white',
-                                  opacity: 0.9
-                                }}
-                              >
-                                {statusData.text}
-                              </span>
-                            </td>
-                          );
-                        }
+                {filteredPayments.map((p, index) => (
+                  <tr key={p.id}>
+                    {DATA_KEYS.map((key) => {
+                      if (key === 'id') return <td key={key} style={{color: '#94a3b8'}}>#{index + 1}</td>;
+                      
+                      // Month & Year Columns
+                      if (key === 'month') return <td key={key} style={{fontWeight: 500}}>{p.month}</td>;
+                      if (key === 'year') return <td key={key} style={{color: '#64748b'}}>{p.year}</td>;
 
-                        // Count Column
-                        if (key === 'date_count') {
-                            return (
-                                <td key={key} style={{textAlign: 'center'}}>
-                                    <span className="count-badge">
-                                        {p[key] || 0} 
-                                    </span>
-                                </td>
-                            );
-                        }
-                        
-                        // Action Column
-                        if (key === 'Action') {
-                          return (
-                            <td key={key}>
-                              <button onClick={() => openManageModal(p.id, index + 1)} className="btn btn-outline" style={{padding: '4px 12px', fontSize: '12px'}}>
-                                Manage
-                              </button>
-                            </td>
-                          );
-                        }
-                        
-                        // Date Column
-                        if (key === 'latest_payment') return <td key={key}>{formatDateForDisplay(p[key])}</td>;
-                        
-                        // Remark Column
-                        if (key === 'latest_remark') return <td key={key} style={{maxWidth: '200px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>{p[key] || '-'}</td>;
+                      if (key === 'payment_status') {
+                        const statusData = getStatusDisplay(p[key]);
+                        return (
+                          <td key={key}>
+                            <span className="status-pill" style={{backgroundColor: statusData.bgColor, color: statusData.color}}>
+                              {statusData.text}
+                            </span>
+                          </td>
+                        );
+                      }
+                      
+                      if (key === 'Action') {
+                        return (
+                          <td key={key}>
+                            <button onClick={() => openManageModal(p.id, index + 1)} className="btn btn-outline" style={{padding: '4px 12px', fontSize: '12px'}}>
+                              Manage
+                            </button>
+                          </td>
+                        );
+                      }
+                      
+                      if (key === 'latest_payment') return <td key={key}>{formatDateForDisplay(p[key])}</td>;
+                      if (key === 'latest_remark') return <td key={key} style={{maxWidth: '150px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>{p[key] || '-'}</td>;
 
-                        // Standard Columns
-                        return <td key={key}>{p[key]}</td>;
-                      })}
-                    </tr>
-                  );
-                })}
-                {filteredPayments.length === 0 && payments.length > 0 && (
-                  <tr>
-                    <td colSpan={ALL_HEADERS.length} style={{textAlign: 'center', padding: '30px', color: 'var(--text-muted)'}}>
-                      No records match the current search/filters.
-                    </td>
+                      return <td key={key}>{p[key]}</td>;
+                    })}
                   </tr>
-                )}
+                ))}
               </tbody>
             </table>
           </div>
         )}
       </div>
 
-      {/* --- TRACKING MODAL --- */}
+      {/* --- TRACKING MODAL (Same as before) --- */}
       {managePaymentId !== null && (
         <div className="modal-overlay">
           <div className="modal-content">
-            <div className="modal-header">
-              <h2 className="modal-title">Update History <span style={{fontWeight: 400, color: 'var(--text-muted)', fontSize: '0.8em'}}>#{managePaymentIndex}</span></h2>
-              <button className="modal-close" onClick={closeManageModal}>&times;</button>
+            <div style={{display:'flex', justifyContent:'space-between', marginBottom:'20px'}}>
+              <h2>Manage Payment</h2>
+              <button onClick={closeManageModal} style={{background:'none', border:'none', fontSize:'24px', cursor:'pointer'}}>&times;</button>
             </div>
             
-            {/* Add New Entry Form */}
-            <form onSubmit={handleAddTrackingEntry} className="tracking-form">
-              <div style={{flex: 1}}>
-                <input 
-                  type="date" 
-                  value={newDate} 
-                  onChange={(e) => setNewDate(e.target.value)} 
-                  className="form-input"
-                  required 
-                />
-              </div>
-              <div style={{flex: 2}}>
-                <input 
-                  type="text" 
-                  value={newRemark} 
-                  onChange={(e) => setNewRemark(e.target.value)} 
-                  placeholder="Enter Remark (Optional)"
-                  className="form-input" 
-                />
-              </div>
+            <form onSubmit={handleAddTrackingEntry} style={{display:'flex', gap:'10px', marginBottom:'20px'}}>
+              <input type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)} className="form-input" required />
+              <input type="text" value={newRemark} onChange={(e) => setNewRemark(e.target.value)} placeholder="Remark" className="form-input" />
               <button type="submit" className="btn btn-primary"><Icons.Plus /></button>
             </form>
 
-            {/* History List */}
-            <div className="history-list">
-              <div style={{marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                <span style={{fontSize: '14px', fontWeight: 600}}>Status:</span>
-                <select 
-                  className="form-select" 
-                  style={{width: 'auto', padding: '4px 8px'}}
-                  onChange={(e) => handleUpdatePaymentStatus(e.target.value)}
-                  value={payments.find(p => p.id === managePaymentId)?.payment_status || 'PENDING'}
-                >
-                  <option value="PENDING">Pending</option>
-                  <option value="PARTIAL">Partial</option>
-                  <option value="PAID">Paid</option>
-                </select>
-              </div>
-              
-              {trackingHistory.length === 0 ? (
-                <p style={{textAlign: 'center', color: 'var(--text-muted)', padding: '20px'}}>No history found.</p>
-              ) : (
-                trackingHistory.map((entry) => (
-                  <div key={entry.id} className="history-item">
-                    <div>
-                      <div className="history-remark">{entry.remark || 'No remark'}</div>
-                      <div className="history-meta">
-                        Entry Date: {entry.actual_payment ? formatDateForDisplay(entry.actual_payment) : 'N/A'}
-                      </div>
-                    </div>
-                    <div style={{fontSize: '11px', color: 'var(--text-muted)'}}>
-                      Logged: {formatDateForDisplay(entry.created_at)}
-                    </div>
+            <div style={{marginBottom:'20px'}}>
+               <label className="form-label" style={{marginBottom:'8px', display:'block'}}>Mark Status</label>
+               <div style={{display:'flex', gap:'10px'}}>
+                  {['PENDING', 'PARTIAL', 'PAID'].map(status => (
+                    <button 
+                      key={status}
+                      type="button"
+                      onClick={() => handleUpdatePaymentStatus(status)}
+                      className="btn"
+                      style={{
+                        flex: 1,
+                        background: payments.find(p => p.id === managePaymentId)?.payment_status === status ? '#0f172a' : '#f1f5f9',
+                        color: payments.find(p => p.id === managePaymentId)?.payment_status === status ? 'white' : 'black'
+                      }}
+                    >
+                      {status}
+                    </button>
+                  ))}
+               </div>
+            </div>
+
+            <div style={{maxHeight:'200px', overflowY:'auto', borderTop:'1px solid #e2e8f0', paddingTop:'10px'}}>
+              {trackingHistory.map((entry) => (
+                <div key={entry.id} style={{padding:'8px', borderBottom:'1px solid #f1f5f9'}}>
+                  <div style={{fontWeight:500}}>{entry.remark || 'Update'}</div>
+                  <div style={{fontSize:'12px', color:'#64748b'}}>
+                     Date: {formatDateForDisplay(entry.actual_payment)}
                   </div>
-                ))
-              )}
+                </div>
+              ))}
             </div>
           </div>
         </div>
       )}
       
-      {/* --- DELETE CONFIRMATION MODAL --- */}
+      {/* --- DELETE CONFIRM MODAL --- */}
       {isDeleteModalOpen && (
         <div className="modal-overlay">
-          <div className="modal-content delete-content">
-            <span className="warning-icon">⚠️</span>
-            <h2 className="modal-title" style={{marginBottom: '12px'}}>Confirm Deletion</h2>
-            <p style={{color: 'var(--text-muted)', lineHeight: 1.5}}>
-              Are you absolutely sure you want to <strong>DELETE ALL</strong> records? <br/>
-              This action cannot be undone.
-            </p>
-            <div className="delete-actions">
-              <button className="btn btn-outline" onClick={() => setIsDeleteModalOpen(false)}>
-                Cancel
-              </button>
-              <button className="btn btn-danger" onClick={handleDeleteAll}>
-                Yes, Delete All
-              </button>
+          <div className="modal-content" style={{textAlign:'center', maxWidth:'400px'}}>
+            <h2 style={{color: '#ef4444'}}>Warning</h2>
+            <p>This will permanently delete ALL payment history for all months.</p>
+            <div style={{display:'flex', gap:'10px', justifyContent:'center', marginTop:'20px'}}>
+              <button className="btn btn-outline" onClick={() => setIsDeleteModalOpen(false)}>Cancel</button>
+              <button className="btn btn-danger" onClick={handleDeleteAll}>Confirm Delete</button>
             </div>
           </div>
         </div>
@@ -667,12 +480,10 @@ function PaymentTracker() {
   );
 }
 
-// --- Icons Components (Simple SVG) ---
 const Icons = {
-  Upload: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>,
-  Trash: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>,
-  Search: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
-  Plus: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+  Upload: () => <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>,
+  Trash: () => <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>,
+  Plus: () => <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
 };
 
 export default PaymentTracker;
