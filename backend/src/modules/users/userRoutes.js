@@ -1,6 +1,6 @@
 // backend/src/modules/users/userRoutes.js
 import express from 'express';
-import { registerUser, loginUser, forgotPassword, resetPassword, changePassword } from './userController.js';
+import { registerUser, loginUser, forgotPassword, resetPassword, changePassword } from './userService.js';
 import { protect } from '../../middleware/authMiddleware.js';
 
 const router = express.Router();

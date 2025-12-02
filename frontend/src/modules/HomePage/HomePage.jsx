@@ -5,8 +5,8 @@ import api from "../../lib/api"; // Ensure this path is correct
 export default function HomePage() {
   // State for Stats
   const [stats, setStats] = useState([
-    { id: 1, label: "Total Records", value: "0" },
-    { id: 2, label: "Pending", value: "0" },
+    { id: 1, label: "Records (This Month)", value: "0" },
+    { id: 2, label: "Pending (This Month)", value: "0" }, // Updated label
   ]);
   
   // State for "Due Today" and "Past Due" tables
@@ -18,19 +18,15 @@ export default function HomePage() {
   // Robust helper to extract a YYYY-MM-DD string from incoming values
   const extractDateString = (val) => {
     if (!val) return null;
-    // If it's a Date object
     if (val instanceof Date && !Number.isNaN(val.getTime())) {
       const y = val.getFullYear();
       const m = String(val.getMonth() + 1).padStart(2, '0');
       const d = String(val.getDate()).padStart(2, '0');
       return `${y}-${m}-${d}`;
     }
-    // If it's a string, try to read first 10 chars (YYYY-MM-DD) if present
     const s = String(val).trim();
     const maybeDate = s.substring(0, 10);
-    // Basic YYYY-MM-DD pattern check
     if (/^\d{4}-\d{2}-\d{2}$/.test(maybeDate)) return maybeDate;
-    // fallback: try to parse whole string and derive local YYYY-MM-DD
     const parsed = new Date(s);
     if (!Number.isNaN(parsed.getTime())) {
       const y = parsed.getFullYear();
@@ -41,31 +37,11 @@ export default function HomePage() {
     return null;
   };
 
-  // Compare two YYYY-MM-DD strings (or date-likes) by local date (no time)
-  const isSameLocalDate = (dateLikeA, dateLikeB) => {
-    const a = extractDateString(dateLikeA);
-    const b = extractDateString(dateLikeB);
-    if (!a || !b) return false;
-    return a === b;
-  };
-
-  // Check if dateLike is before today's local date
-  const isBeforeTodayLocal = (dateLike) => {
-    const ds = extractDateString(dateLike);
-    if (!ds) return false;
-    const [y, m, d] = ds.split("-").map(Number);
-    const candidate = new Date(y, m - 1, d);
-    const today = new Date();
-    const t = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    return candidate.getTime() < t.getTime();
-  };
-
   // Fetch and Calculate Data
   useEffect(() => {
     const fetchData = async () => {
       try {
         const res = await api.get("/api/payments");
-        // support different response shapes
         let data = [];
         if (Array.isArray(res.data)) data = res.data;
         else if (Array.isArray(res.data?.data)) data = res.data.data;
@@ -76,47 +52,57 @@ export default function HomePage() {
           data = arr || [];
         }
 
-        // 1. Total & Pending Counts
-        const totalCount = data.length;
-        const pendingCount = data.filter(p => {
+        const now = new Date();
+        
+        // --- UPDATED LOGIC FOR CURRENT MONTH ---
+        // Get full month name (e.g., "December") and Year (e.g., 2025)
+        const currentMonthName = now.toLocaleString('default', { month: 'long' });
+        const currentYear = now.getFullYear();
+
+        // 1. Filter ALL records to get only this month's records
+        const currentMonthRecords = data.filter(p => {
+            // Ensure strict comparison for year, loose for month string
+            return (
+                p.month === currentMonthName && 
+                Number(p.year) === currentYear
+            );
+        });
+        
+        // A. Total Records Count (This Month)
+        const currentMonthCount = currentMonthRecords.length;
+
+        // B. Pending Count (This Month)
+        // We filter `currentMonthRecords` instead of `data`
+        const pendingCount = currentMonthRecords.filter(p => {
           const s = (p.payment_status || "").toString().trim().toUpperCase();
           return s === 'PENDING';
         }).length;
 
-        // Today's date string in YYYY-MM-DD (local)
-        const now = new Date();
-        const year = now.getFullYear();
-        const month = String(now.getMonth() + 1).padStart(2, '0');
-        const day = String(now.getDate()).padStart(2, '0');
-        const todayStr = `${year}-${month}-${day}`; // e.g. "2025-11-24"
-
-        // 2. Build today's and past-due arrays (defensive parsing)
+        // 2. Build today's and past-due arrays (remains based on date comparison)
+        const todayStr = extractDateString(now); // e.g. "2025-12-02"
         const dueToday = [];
         const pastDue = [];
 
         data.forEach(p => {
-          // latest_payment may be null, "YYYY-MM-DD" or an ISO string
           const dateStr = extractDateString(p.latest_payment);
-          if (!dateStr) return; // skip rows without a date
+          if (!dateStr) return; 
           
           if (dateStr === todayStr) {
             dueToday.push(p);
           } else {
-            // if date < today -> past due
             const [y,m,d] = dateStr.split('-').map(Number);
             const dt = new Date(y, m - 1, d);
             const t = new Date(now.getFullYear(), now.getMonth(), now.getDate());
             if (dt.getTime() < t.getTime()) {
               pastDue.push(p);
             }
-            // else (future) we ignore for this UI
           }
         });
 
         // Update States
         setStats([
-          { id: 1, label: "Total Records", value: totalCount.toString() },
-          { id: 2, label: "Pending", value: pendingCount.toString() },
+          { id: 1, label: "Records (This Month)", value: currentMonthCount.toString() },
+          { id: 2, label: "Pending (This Month)", value: pendingCount.toString() },
         ]);
         setTodaysPayments(dueToday);
         setPastDuePayments(pastDue);
@@ -155,15 +141,15 @@ export default function HomePage() {
           background-color: var(--bg-body);
           min-height: 100vh;
           color: var(--text-main);
-          padding: 40px 24px; /* Slightly increased side padding */
+          padding: 40px 24px;
           position: relative;
           overflow-y: auto;
         }
 
         .wrapper {
-          width: 100%;       /* CHANGED: Fill the available width */
-          max-width: none;   /* CHANGED: Removed the 1200px limit */
-          margin: 0;         /* CHANGED: Reset auto margins */
+          width: 100%;
+          max-width: none;
+          margin: 0;
           position: relative;
           z-index: 1;
         }
@@ -217,7 +203,7 @@ export default function HomePage() {
 
         .main-grid {
           display: grid; 
-          grid-template-columns: 3fr 1fr; /* CHANGED: Gives more space to the main card */
+          grid-template-columns: 3fr 1fr;
           gap: 24px; 
           margin-bottom: 24px;
         }
@@ -269,7 +255,6 @@ export default function HomePage() {
         .action-text h4 { margin: 0; font-size: 14px; font-weight: 600; color: var(--text-main); }
         .action-text p { margin: 0; font-size: 12px; color: var(--text-muted); }
 
-        /* NEW: two-column area for Due Today and Past Due */
         .two-col {
           display: grid;
           grid-template-columns: 1fr 1fr;
@@ -468,7 +453,6 @@ export default function HomePage() {
                           <td style={{ fontWeight: 600 }}>{p.party}</td>
                           <td>{p.contact_no || '-'}</td>
                           <td style={{ color: 'var(--text-muted)' }}>
-                            {/* show the YYYY-MM-DD or formatted */}
                             { (p.latest_payment ? String(p.latest_payment).substring(0,10) : '-') }
                           </td>
                           <td>
