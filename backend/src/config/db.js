@@ -5,6 +5,15 @@ dotenv.config();
 
 const { Pool } = pkg;
 
+// --- FIX START: PREVENT DATE TIMEZONE CONVERSION ---
+// OID 1082 is the Postgres internal ID for the 'DATE' type.
+// We override the parser to return the raw string (e.g., "2025-12-31")
+// instead of converting it to a Date object (which causes the -1 day issue).
+pkg.types.setTypeParser(1082, (stringValue) => {
+  return stringValue; 
+});
+// --- FIX END ---
+
 const connectionString = process.env.PG_CONNECTION_STRING;
 
 if (!connectionString) {

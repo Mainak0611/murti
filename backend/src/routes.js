@@ -3,6 +3,8 @@
 // Import all module route files
 import paymentRoutes from "./modules/payments/paymentRoutes.js";
 import userRoutes from "./modules/users/userRoutes.js";
+import partyRoutes from "./modules/partyEnquiry/partyRoutes.js"; 
+// Ensure this path matches your actual folder
 import { protect } from "./middleware/authMiddleware.js";
 
 /**
@@ -16,9 +18,8 @@ const registerRoutes = (app) => {
   // Keep user routes public for register/login/password-reset endpoints.
   app.use("/api/users", userRoutes);
 
-  // Future modules would be registered here:
-  // app.use("/api/inventory", protect, inventoryRoutes);
-  // app.use("/api/clients", clientRoutes);
+  app.use("/api/party-enquiries", partyRoutes);
+
 };
 
 export default registerRoutes;

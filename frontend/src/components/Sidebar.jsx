@@ -31,19 +31,24 @@ const Sidebar = () => {
     };
 
     const userName = getUserName();
-    const userInitial = userName.charAt(0).toUpperCase();
+    const userInitial = (userName && userName.charAt(0)) ? userName.charAt(0).toUpperCase() : 'A';
 
+    // NOTE: Added party-enquiries route here
     const menuItems = [
         { id: 'home', title: 'Dashboard', path: '/', icon: 'home' },
         { id: 'payments', title: 'Payment Records', path: '/payments', icon: 'dollar' },
-        // { id: 'reports', title: 'Reports', path: '/reports', icon: 'file' },
-        // { id: 'analytics', title: 'Analytics', path: '/analytics', icon: 'chart' },
+        { id: 'party-enquiries', title: 'Party Enquiries', path: '/party-enquiries', icon: 'file' },
         { id: 'settings', title: 'Settings', path: '/change-password', icon: 'cog' },
     ];
 
+    // small helper to check active route (handles exact match, or root)
+    const isActive = (path) => {
+        if (path === '/') return location.pathname === '/';
+        return location.pathname === path;
+    };
+
     return (
         <div className={`sidebar ${isCollapsed ? 'collapsed' : ''}`}>
-            {/* Internal CSS for Professional Styling */}
             <style>{`
                 :root {
                     --sidebar-bg: #0f172a;       /* Slate 900 */
@@ -242,7 +247,7 @@ const Sidebar = () => {
 
             <div className="sidebar-header">
                 {!isCollapsed && <h2 className="sidebar-logo">Murti</h2>}
-                <button className="toggle-btn" onClick={toggleSidebar}>
+                <button className="toggle-btn" onClick={toggleSidebar} aria-label="Toggle sidebar">
                     {isCollapsed ? <Icons.MenuOpen /> : <Icons.MenuClose />}
                 </button>
             </div>
@@ -253,7 +258,7 @@ const Sidebar = () => {
                         <li key={item.id}>
                             <Link 
                                 to={item.path} 
-                                className={`sidebar-link ${location.pathname === item.path ? 'active' : ''}`}
+                                className={`sidebar-link ${isActive(item.path) ? 'active' : ''}`}
                                 title={isCollapsed ? item.title : ''}
                             >
                                 <span className="sidebar-icon">{getIcon(item.icon)}</span>

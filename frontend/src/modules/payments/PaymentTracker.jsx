@@ -1,5 +1,5 @@
 // frontend/src/modules/PaymentTracker.jsx
-import React, { useEffect, useState, useMemo, useRef } from "react";
+import React, { useEffect, useState, useMemo, useRef, useLayoutEffect } from "react";
 import api from "../../lib/api";
 import {
   formatDateForDisplay,
@@ -20,6 +20,13 @@ function PaymentTracker() {
 
   // ref for quick focusing the search input
   const searchInputRef = useRef(null);
+
+  // --- PIN / STICKY REFS (Party Enquiry Method) ---
+  const sentinelRef = useRef(null);        // invisible marker above filter
+  const wrapperRef = useRef(null);         // wrapper that holds space
+  const cardRef = useRef(null);            // actual filter card
+  const [isPinned, setIsPinned] = useState(false);
+  const [cardMetrics, setCardMetrics] = useState({ width: 'auto', left: 0, height: 0 });
 
   // --- MERGE STATES ---
   const [isMergeMode, setIsMergeMode] = useState(false);
@@ -541,6 +548,72 @@ function PaymentTracker() {
     }
   };
 
+  // --- CLEAR FILTERS ---
+  const clearAllFilters = () => {
+    setSearchTerm('');
+    setFilterMonth('ALL');
+    setFilterStatus('ALL');
+    setSortOrder('none');
+
+    if (searchInputRef.current) {
+      try { searchInputRef.current.focus({ preventScroll: true }); } catch (e) {}
+    }
+  };
+
+  // --- PINNING LOGIC (IntersectionObserver) ---
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        // Toggle pinned state based on sentinel visibility
+        setIsPinned(!entry.isIntersecting);
+      },
+      { threshold: 0, rootMargin: "-10px 0px 0px 0px" } 
+    );
+
+    if (sentinelRef.current) {
+      observer.observe(sentinelRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, []);
+
+  // --- GEOMETRY TRACKING (ResizeObserver) ---
+  // This replaces the 'scroll' listener to fix the jerk/lag
+  useLayoutEffect(() => {
+    if (!wrapperRef.current) return;
+
+    // Function to measure the wrapper's position and size
+    const measure = () => {
+      if (wrapperRef.current) {
+        const rect = wrapperRef.current.getBoundingClientRect();
+        // Measure card height if available, otherwise default
+        const currentHeight = cardRef.current ? cardRef.current.offsetHeight : 0;
+        
+        setCardMetrics({
+          width: `${rect.width}px`,
+          left: rect.left,
+          height: currentHeight || 'auto'
+        });
+      }
+    };
+
+    // 1. Initial Measure
+    measure();
+
+    // 2. Observe resize (handles window resize + sidebar toggle)
+    const resizeObserver = new ResizeObserver(() => {
+      measure();
+    });
+    resizeObserver.observe(wrapperRef.current);
+
+    // 3. Optional: Catch scroll only if horizontal scroll exists (rare but safe)
+    window.addEventListener('scroll', measure);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('scroll', measure);
+    };
+  }, []);
 
   return (
     <div className="dashboard-container">
@@ -578,6 +651,8 @@ function PaymentTracker() {
         .btn-primary { background: var(--primary); color: white; }
         .btn-danger { background: #fff1f2; color: var(--danger); border: 1px solid #fecdd3; }
         .btn-outline { background: white; border: 1px solid var(--border); color: var(--text-main); }
+        .btn-secondary { background: #f1f5f9; color: var(--text-muted); border: 1px solid var(--border); }
+        .btn-secondary:hover { background: #e2e8f0; color: var(--text-main); }
         .filter-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; align-items: end; }
         .form-label { font-size: 13px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; }
         .form-input, .form-select { padding: 10px; border: 1px solid var(--border); border-radius: 6px; width: 100%; }
@@ -636,15 +711,28 @@ function PaymentTracker() {
             vertical-align: middle;
         }
 
-        /* Sticky filter card so search/selects remain visible while scrolling */
+        /* Sticky filter card base styles */
         .filter-card {
-          position: sticky;
-          top: 16px; /* adjust if you have a fixed header */
-          z-index: 800;
           margin-bottom: 18px;
           background: var(--bg-card);
-          /* keep inner padding consistent with .card */
           padding: 20px;
+          transition: transform 220ms cubic-bezier(.2,.9,.2,1), box-shadow 220ms ease, opacity 160ms ease;
+          will-change: transform, box-shadow;
+        }
+
+        /* When pinned/fixed via JS */
+        .filter-card.fixed {
+          position: fixed;
+          z-index: 1200;
+          box-shadow: 0 12px 30px rgba(15, 23, 42, 0.18);
+          /* slight lift effect when pinned */
+          transform: translateY(-6px);
+          opacity: 1;
+        }
+
+        .filter-placeholder {
+          height: 0px;
+          transition: height 0.15s ease;
         }
 
         /* Floating FAB for quick search focus */
@@ -660,6 +748,11 @@ function PaymentTracker() {
           justify-content: center;
           z-index: 1200;
           cursor: pointer;
+        }
+
+        /* Make sure the fixed card doesn't overflow on small screens */
+        @media (max-width: 640px) {
+          .filter-card.fixed { left: 8px !important; width: calc(100% - 16px) !important; right: 8px; }
         }
       `}</style>
 
@@ -700,8 +793,39 @@ function PaymentTracker() {
         )}
       </div>
 
-      {/* Filters (sticky) */}
-      <div className="card filter-card">
+      {/* --- PINNED FILTER SECTION (WRAPPER METHOD) --- */}
+      {/* Sentinel detects when we reach the top */}
+      <div ref={sentinelRef} style={{ height: '1px', marginBottom: '-1px' }} />
+
+      {/* WRAPPER: Holds the space in the flow */}
+      <div 
+        ref={wrapperRef} 
+        style={{ 
+          // Dynamic height prevents the table from jumping up
+          height: isPinned ? cardMetrics.height : 'auto',
+          marginBottom: '24px',
+          position: 'relative' // Keeps context
+        }}
+      >
+        <div 
+          ref={cardRef}
+          className="card filter-card"
+          style={isPinned ? {
+            position: 'fixed',
+            top: 0,
+            left: cardMetrics.left,  // Precise alignment
+            width: cardMetrics.width, // Precise width
+            zIndex: 1000,
+            borderRadius: '0 0 12px 12px', // Visual polish
+            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+            margin: 0,
+            transition: 'none', // Disable transition to prevent jump
+            boxSizing: 'border-box'
+          } : {
+            margin: 0,
+            transition: 'none'
+          }}
+        >
         <div className="filter-bar">
           <div className="form-group">
             <label className="form-label">Search Party</label>
@@ -741,6 +865,21 @@ function PaymentTracker() {
               <option value="desc">Last Pay (Newest)</option>
             </select>
           </div>
+
+          {/* Clear Filters button */}
+          {/* Clear Filters button */}
+<div className="form-group">
+  <label className="form-label">&nbsp;</label>
+  <button 
+    type="button"
+    onClick={clearAllFilters}
+    className="btn btn-secondary"
+    style={{ width: '100%' }}
+  >
+    Clear Filters
+  </button>
+</div>
+        </div>
         </div>
       </div>
 

@@ -1,4 +1,3 @@
-// frontend/src/App.jsx
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import Layout from "./components/Layout";
@@ -8,6 +7,17 @@ import LoginPage from './modules/auth/LoginPage.jsx';
 import RegisterPage from './modules/auth/RegisterPage.jsx';
 import ForgotPasswordPage from './modules/auth/ForgotPasswordPage.jsx';
 import ChangePasswordPage from './modules/auth/ChangePasswordPage.jsx';
+import PartyEnquiriesPage from "./modules/partyEnquiry/index.jsx";
+
+// 1. IMPORT THE HOOK
+import useScrollToTop from './hooks/useScrollToTop';
+
+// 2. CREATE THE HELPER COMPONENT
+// This component renders nothing visual but triggers the scroll logic
+const ScrollHandler = () => {
+  useScrollToTop();
+  return null;
+};
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('userToken'));
@@ -87,10 +97,15 @@ function App() {
   // --- Authenticated Routes (Protected) ---
   return (
     <Router>
+      {/* 3. PLACE THE SCROLL HANDLER HERE */}
+      {/* It sits inside Router but outside Routes so it stays active during navigation */}
+      <ScrollHandler />
+      
       <Layout>
         <Routes>
           <Route path="/" element={<HomePage />} /> 
           <Route path="/payments" element={<PaymentTracker />} />
+          <Route path="/party-enquiries" element={<PartyEnquiriesPage />} />
           <Route path="/change-password" element={<ChangePasswordPage />} />
           
           {/* Redirect generic auth paths back to dashboard if already logged in */}
