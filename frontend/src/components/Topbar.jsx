@@ -21,6 +21,7 @@ const Topbar = () => {
         if (location.pathname.startsWith('/payments')) return 'Payment Records';
         if (location.pathname.startsWith('/reports')) return 'Reports';
         if (location.pathname.startsWith('/change-password')) return 'Settings';
+        if (location.pathname.startsWith('/party-enquiries')) return 'Party Enquiries';
         return 'Dashboard';
     };
 
