@@ -38,6 +38,7 @@ const Sidebar = () => {
         { id: 'home', title: 'Dashboard', path: '/', icon: 'home' },
         { id: 'payments', title: 'Payment Records', path: '/payments', icon: 'dollar' },
         { id: 'party-enquiries', title: 'Party Enquiries', path: '/party-enquiries', icon: 'file' },
+        { id: 'item-master', title: 'Item Master', path: '/item-master', icon: 'chart' },
         { id: 'settings', title: 'Settings', path: '/change-password', icon: 'cog' },
     ];
 

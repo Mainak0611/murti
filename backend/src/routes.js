@@ -3,8 +3,9 @@
 // Import all module route files
 import paymentRoutes from "./modules/payments/paymentRoutes.js";
 import userRoutes from "./modules/users/userRoutes.js";
-import partyRoutes from "./modules/partyEnquiry/partyRoutes.js"; 
-// Ensure this path matches your actual folder
+import partyRoutes from "./modules/partyEnquiry/partyRoutes.js";
+import itemRoutes from "./modules/itemMaster/itemMasterRoutes.js"; // <--- Import Item Routes
+
 import { protect } from "./middleware/authMiddleware.js";
 
 /**
@@ -20,6 +21,8 @@ const registerRoutes = (app) => {
 
   app.use("/api/party-enquiries", partyRoutes);
 
+  // Register Item Master routes
+  app.use("/api/items", itemRoutes); // <--- Register endpoint
 };
 
 export default registerRoutes;

@@ -8,6 +8,7 @@ import RegisterPage from './modules/auth/RegisterPage.jsx';
 import ForgotPasswordPage from './modules/auth/ForgotPasswordPage.jsx';
 import ChangePasswordPage from './modules/auth/ChangePasswordPage.jsx';
 import PartyEnquiriesPage from "./modules/partyEnquiry/index.jsx";
+import ItemMaster from "./modules/itemMaster/index.jsx";
 
 // 1. IMPORT THE HOOK
 import useScrollToTop from './hooks/useScrollToTop';
@@ -107,6 +108,7 @@ function App() {
           <Route path="/payments" element={<PaymentTracker />} />
           <Route path="/party-enquiries" element={<PartyEnquiriesPage />} />
           <Route path="/change-password" element={<ChangePasswordPage />} />
+          <Route path="/item-master" element={<ItemMaster />} />
           
           {/* Redirect generic auth paths back to dashboard if already logged in */}
           <Route path="/login" element={<Navigate to="/" replace />} /> 

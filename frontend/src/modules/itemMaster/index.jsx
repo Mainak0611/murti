@@ -1,21 +1,23 @@
+// frontend/src/modules/ItemMasterIndex.jsx
 import React, { useEffect, useState, useMemo, useRef, useLayoutEffect } from 'react';
 import api from '../../lib/api';
-import PartyEnquiryForm from './PartyEnquiryForm';
-import PartyEnquiryTable from './PartyEnquiryTable';
+import ItemMasterForm from './itemMasterForm';
+import ItemMasterTable from './itemMasterTable';
 
-const PartyEnquiryIndex = () => {
-  const [enquiries, setEnquiries] = useState([]);
+const ItemMasterIndex = () => {
+  const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
 
-  // --- LIFTED STATE (Moved from Table to here) ---
-  // We need this here so we can blur the Filter Card when the modal is open
+  // --- LIFTED STATE (For Modal/Blur) ---
   const [viewItem, setViewItem] = useState(null);
 
   // --- FILTER & SORT STATE ---
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterDate, setFilterDate] = useState('');
-  const [sortOrder, setSortOrder] = useState('desc');
+  
+  // CHANGED: Split sorting into "Field" and "Order"
+  const [sortBy, setSortBy] = useState('id'); // Options: 'id', 'weight', 'size', 'price'
+  const [sortOrder, setSortOrder] = useState('asc'); // Options: 'asc', 'desc'
 
   // --- STICKY STATE ---
   const [isPinned, setIsPinned] = useState(false);
@@ -32,103 +34,105 @@ const PartyEnquiryIndex = () => {
     setTimeout(() => setToast(prev => ({ ...prev, show: false })), 3000);
   };
 
-  const fetchEnquiries = async (isBackground = false) => {
+  const fetchItems = async (isBackground = false) => {
     if (!isBackground) {
       setLoading(true);
     }
     try {
-      const res = await api.get('/api/party-enquiries/parties');
+      const res = await api.get('/api/items');
       const data = Array.isArray(res.data) ? res.data : (res.data.data || []);
-      setEnquiries(data);
+      setItems(data);
     } catch (err) {
       console.error("Fetch error:", err);
-      showToast("Failed to load enquiries", "error");
+      showToast("Failed to load items", "error");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchEnquiries(); 
+    fetchItems(); 
   }, []);
 
-  // --- FILTER LOGIC ---
+  // --- FILTER & SORT LOGIC ---
   const filteredData = useMemo(() => {
-    let result = [...enquiries];
+    let result = [...items];
 
+    // 1. Search Filter
     if (searchTerm) {
       const lowerTerm = searchTerm.toLowerCase();
       result = result.filter(item =>
-        (item.party_name && item.party_name.toLowerCase().includes(lowerTerm)) ||
-        (item.mobile_no && item.mobile_no.includes(lowerTerm)) ||
-        (item.location && item.location.toLowerCase().includes(lowerTerm))
+        (item.item_name && item.item_name.toLowerCase().includes(lowerTerm)) ||
+        (item.hsn_code && item.hsn_code.toLowerCase().includes(lowerTerm)) ||
+        (item.remarks && item.remarks.toLowerCase().includes(lowerTerm))
       );
     }
 
-    if (filterDate) {
-      result = result.filter(item => {
-        if (!item.enquiry_date) return false;
-        return item.enquiry_date.startsWith(filterDate);
-      });
-    }
-
+    // 2. Dynamic Sorting
     result.sort((a, b) => {
-      const dateA = new Date(a.enquiry_date || 0).getTime();
-      const dateB = new Date(b.enquiry_date || 0).getTime();
-      return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
+      let valA = a[sortBy];
+      let valB = b[sortBy];
+
+      // Handle nulls/undefined safely
+      if (valA === null || valA === undefined) valA = '';
+      if (valB === null || valB === undefined) valB = '';
+
+      // Numeric Parsing for Weight/Price/ID to ensure "10" comes after "2"
+      // (Tries to parse "10kg" -> 10, "Rs. 500" -> 500)
+      const numA = parseFloat(String(valA).replace(/[^0-9.-]+/g,""));
+      const numB = parseFloat(String(valB).replace(/[^0-9.-]+/g,""));
+
+      const isNumeric = !isNaN(numA) && !isNaN(numB) && valA !== '' && valB !== '';
+
+      if (isNumeric && (sortBy === 'weight' || sortBy === 'price' || sortBy === 'id')) {
+         return sortOrder === 'asc' ? numA - numB : numB - numA;
+      }
+
+      // Fallback to String comparison (e.g. for Size "L", "XL", "M")
+      const strA = String(valA).toLowerCase();
+      const strB = String(valB).toLowerCase();
+
+      if (strA < strB) return sortOrder === 'asc' ? -1 : 1;
+      if (strA > strB) return sortOrder === 'asc' ? 1 : -1;
+      return 0;
     });
 
     return result;
-  }, [enquiries, searchTerm, filterDate, sortOrder]);
+  }, [items, searchTerm, sortBy, sortOrder]);
 
   const clearFilters = () => {
     setSearchTerm('');
-    setFilterDate('');
-    setSortOrder('desc');
+    setSortBy('id');
+    setSortOrder('asc');
   };
 
   // --- PINNING LOGIC ---
   useEffect(() => {
     const observer = new IntersectionObserver(
-      ([entry]) => {
-        setIsPinned(!entry.isIntersecting);
-      },
+      ([entry]) => { setIsPinned(!entry.isIntersecting); },
       { threshold: 0, rootMargin: "-10px 0px 0px 0px" } 
     );
-
-    if (sentinelRef.current) {
-      observer.observe(sentinelRef.current);
-    }
-
+    if (sentinelRef.current) observer.observe(sentinelRef.current);
     return () => observer.disconnect();
   }, []);
 
   // --- GEOMETRY TRACKING ---
   useLayoutEffect(() => {
     if (!wrapperRef.current) return;
-
     const measure = () => {
       if (wrapperRef.current) {
         const rect = wrapperRef.current.getBoundingClientRect();
-        const currentHeight = cardRef.current ? cardRef.current.offsetHeight : 0;
-        
         setCardMetrics({
           width: `${rect.width}px`,
           left: rect.left,
-          height: currentHeight || 'auto'
+          height: cardRef.current ? cardRef.current.offsetHeight : 'auto'
         });
       }
     };
-
     measure();
-
-    const resizeObserver = new ResizeObserver(() => {
-      measure();
-    });
+    const resizeObserver = new ResizeObserver(() => measure());
     resizeObserver.observe(wrapperRef.current);
-
     window.addEventListener('scroll', measure);
-
     return () => {
       resizeObserver.disconnect();
       window.removeEventListener('scroll', measure);
@@ -173,7 +177,7 @@ const PartyEnquiryIndex = () => {
           box-shadow: 0 1px 3px rgba(0,0,0,0.05);
           width: 100%;
           box-sizing: border-box; 
-          transition: filter 0.3s ease; /* Smooth blur transition */
+          transition: filter 0.3s ease;
         }
         .section-title { font-size: 18px; margin-bottom: 16px; margin-top: 0; font-weight: 700; }
 
@@ -222,12 +226,9 @@ const PartyEnquiryIndex = () => {
       `}</style>
 
       <div style={{width: '100%', margin: '0 auto'}}>
-        <h1 className="page-title">Party Enquiries</h1>
+        <h1 className="page-title">Item Master</h1>
 
-        <PartyEnquiryForm
-          onSuccess={() => fetchEnquiries(false)} 
-          showToast={showToast}
-        />
+        <ItemMasterForm onSuccess={() => fetchItems(false)} showToast={showToast} />
 
         <div ref={sentinelRef} style={{ height: '1px', marginBottom: '-1px' }} />
 
@@ -243,57 +244,58 @@ const PartyEnquiryIndex = () => {
             ref={cardRef}
             className="card" 
             style={isPinned ? {
-              position: 'fixed',
-              top: 0,
-              left: cardMetrics.left,  
-              width: cardMetrics.width, 
-              zIndex: 1000,
-              borderRadius: '0 0 12px 12px', 
-              boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
-              margin: 0,
-              transition: 'none',
-              // --- BLUR LOGIC FOR PINNED CARD ---
-              filter: viewItem ? 'blur(5px)' : 'none',
-              pointerEvents: viewItem ? 'none' : 'auto'
+              position: 'fixed', top: 0, left: cardMetrics.left, width: cardMetrics.width, 
+              zIndex: 1000, borderRadius: '0 0 12px 12px', 
+              boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
+              margin: 0, transition: 'none',
+              filter: viewItem ? 'blur(5px)' : 'none', pointerEvents: viewItem ? 'none' : 'auto'
             } : {
-              margin: 0,
-              transition: 'none',
-              // --- BLUR LOGIC FOR STATIC CARD ---
-              filter: viewItem ? 'blur(5px)' : 'none',
-              pointerEvents: viewItem ? 'none' : 'auto'
+              margin: 0, transition: 'none',
+              filter: viewItem ? 'blur(5px)' : 'none', pointerEvents: viewItem ? 'none' : 'auto'
             }}
           >
             <div className="enquiry-form-grid">
+              {/* 1. Search (Reduced to 1 column width) */}
               <div className="form-group">
                 <label className="form-label">Search</label>
                 <input
                   type="text"
                   className="form-input"
-                  placeholder="Name"
+                  placeholder="Name / HSN"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
+
+              {/* 2. Sort Field (New) */}
               <div className="form-group">
-                <label className="form-label">Date</label>
-                <input
-                  type="date"
+                <label className="form-label">Sort By</label>
+                <select
                   className="form-input"
-                  value={filterDate}
-                  onChange={(e) => setFilterDate(e.target.value)}
-                />
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                >
+                  <option value="id">ID</option>
+                  <option value="weight">Weight</option>
+                  <option value="size">Size</option>
+                  <option value="price">Price</option>
+                </select>
               </div>
+
+              {/* 3. Sort Order (Renamed) */}
               <div className="form-group">
-                <label className="form-label">Sort Order</label>
+                <label className="form-label">Order</label>
                 <select
                   className="form-input"
                   value={sortOrder}
                   onChange={(e) => setSortOrder(e.target.value)}
                 >
-                  <option value="desc">Newest First</option>
-                  <option value="asc">Oldest First</option>
+                  <option value="asc">Ascending (A-Z)</option>
+                  <option value="desc">Descending (Z-A)</option>
                 </select>
               </div>
+
+              {/* 4. Clear Button */}
               <div className="form-group">
                 <label className="form-label">&nbsp;</label>
                 <button
@@ -308,11 +310,10 @@ const PartyEnquiryIndex = () => {
           </div>
         </div>
 
-        {/* Passing viewItem and setViewItem to Child */}
-        <PartyEnquiryTable
+        <ItemMasterTable
           data={filteredData}
           loading={loading}
-          fetchData={fetchEnquiries}
+          fetchData={fetchItems}
           showToast={showToast}
           viewItem={viewItem}
           setViewItem={setViewItem}
@@ -328,4 +329,4 @@ const PartyEnquiryIndex = () => {
   );
 };
 
-export default PartyEnquiryIndex;
+export default ItemMasterIndex;
