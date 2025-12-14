@@ -17,6 +17,7 @@ export const findOrderById = async (id) => {
 
   if (!order) return null;
 
+  // 1. Fetch Items
   const itemsSql = `
     SELECT 
       oi.id, 
@@ -25,57 +26,66 @@ export const findOrderById = async (id) => {
       oi.dispatched_quantity,
       i.item_name, 
       i.size,
-      i.current_stock -- Added this line to fetch available stock
+      i.current_stock
     FROM public.order_items oi
     JOIN public.items i ON oi.item_id = i.id
     WHERE oi.order_id = $1
     ORDER BY i.item_name ASC
   `;
   const { rows: items } = await pool.query(itemsSql, [id]);
-  
   order.items = items;
+
+  // 2. Fetch Dispatch History (Logs)
+  const historySql = `
+    SELECT 
+      dl.id,
+      dl.dispatch_date,
+      dl.quantity_sent,
+      i.item_name,
+      i.size
+    FROM public.dispatch_logs dl
+    JOIN public.order_items oi ON dl.order_item_id = oi.id
+    JOIN public.items i ON oi.item_id = i.id
+    WHERE oi.order_id = $1
+    ORDER BY dl.dispatch_date DESC, dl.created_at DESC
+  `;
+  const { rows: history } = await pool.query(historySql, [id]);
+  order.history = history;
+
   return order;
 };
 
-export const updateDispatchQuantities = async (orderId, items) => {
+export const updateDispatchQuantities = async (orderId, { dispatch_date, items }) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    
+
     for (const item of items) {
-      // 1. Get the current 'dispatched_quantity' from the DB to calculate the difference
-      const currentItemRes = await client.query(
-        `SELECT dispatched_quantity FROM public.order_items WHERE id = $1 AND order_id = $2`,
-        [item.id, orderId]
-      );
+      const qtyToSend = item.quantity_sent;
+      if (qtyToSend <= 0) continue;
 
-      if (currentItemRes.rows.length === 0) continue; 
-
-      const oldDispatchedQty = currentItemRes.rows[0].dispatched_quantity || 0;
-      const newDispatchedQty = item.dispatched_quantity;
-      
-      // Calculate how much MORE is being sent now
-      const quantityToDeduct = newDispatchedQty - oldDispatchedQty;
-
-      // 2. Update the Order Item with the new total dispatched
+      // 1. Insert into Log
       await client.query(
-        `UPDATE public.order_items SET dispatched_quantity = $1 WHERE id = $2 AND order_id = $3`,
-        [newDispatchedQty, item.id, orderId]
+        `INSERT INTO public.dispatch_logs (order_item_id, quantity_sent, dispatch_date) VALUES ($1, $2, $3)`,
+        [item.id, qtyToSend, dispatch_date]
       );
 
-      // 3. Deduct the difference from the Main Item Stock
-      if (quantityToDeduct > 0) {
-        await client.query(
-          `UPDATE public.items SET current_stock = current_stock - $1 WHERE id = (
-             SELECT item_id FROM public.order_items WHERE id = $2
-           )`,
-          [quantityToDeduct, item.id]
-        );
-      }
-      // Optional: If you allow reducing dispatch (un-sending), you'd handle quantityToDeduct < 0 here too (adding back to stock).
+      // 2. Update Total Dispatched in Order Items
+      await client.query(
+        `UPDATE public.order_items SET dispatched_quantity = dispatched_quantity + $1 WHERE id = $2`,
+        [qtyToSend, item.id]
+      );
+
+      // 3. Deduct from Main Stock
+      await client.query(
+        `UPDATE public.items SET current_stock = current_stock - $1 WHERE id = (
+           SELECT item_id FROM public.order_items WHERE id = $2
+         )`,
+        [qtyToSend, item.id]
+      );
     }
 
-    // Optional: Auto-update status to 'Dispatched' if items > 0
+    // 4. Update Status if needed (Optional)
     await client.query(
       `UPDATE public.orders SET status = 'Dispatched' WHERE id = $1`, 
       [orderId]

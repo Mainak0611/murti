@@ -10,6 +10,7 @@ import ChangePasswordPage from './modules/auth/ChangePasswordPage.jsx';
 import PartyEnquiriesPage from "./modules/partyEnquiry/index.jsx";
 import ItemMaster from "./modules/itemMaster/index.jsx";
 import ConfirmedOrders from "./modules/confirmedOrders/index.jsx";
+import ReturnItems from "./modules/returnItems/index.jsx";
 
 // 1. IMPORT THE HOOK
 import useScrollToTop from './hooks/useScrollToTop';
@@ -116,6 +117,7 @@ function App() {
           <Route path="/login" element={<Navigate to="/" replace />} /> 
           <Route path="/register" element={<Navigate to="/" replace />} />
           <Route path="/forgot-password" element={<Navigate to="/" replace />} />
+          <Route path="/returns" element={<ReturnItems />} />
           
           {/* Catch-all redirect */}
           <Route path="*" element={<Navigate to="/" replace />} /> 

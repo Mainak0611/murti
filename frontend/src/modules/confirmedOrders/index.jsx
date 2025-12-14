@@ -1,4 +1,3 @@
-// frontend/src/modules/OrdersIndex.jsx
 import React, { useEffect, useState, useMemo } from 'react';
 import api from '../../lib/api';
 
@@ -10,7 +9,11 @@ const OrdersIndex = () => {
   // --- MODAL STATE ---
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [dispatchForm, setDispatchForm] = useState([]); 
+  const [dispatchHistory, setDispatchHistory] = useState([]); // NEW: History State
   const [isSaving, setIsSaving] = useState(false);
+  
+  // NEW: State for Dispatch Date
+  const [dispatchDate, setDispatchDate] = useState(new Date().toISOString().split('T')[0]);
 
   // --- FILTER & SORT STATE ---
   const [searchTerm, setSearchTerm] = useState('');
@@ -73,12 +76,15 @@ const OrdersIndex = () => {
   
   const handleRowClick = async (order) => {
     setSelectedOrder(order);
+    setDispatchDate(new Date().toISOString().split('T')[0]); // Reset date
+    setDispatchHistory([]); // Reset history
     
     try {
         const res = await api.get(`/api/orders/${order.id}`);
         const fullOrder = res.data.data;
         
         setSelectedOrder(fullOrder);
+        setDispatchHistory(fullOrder.history || []); // Set history from backend response
         
         if (fullOrder.items) {
             setDispatchForm(fullOrder.items.map(item => ({
@@ -92,8 +98,8 @@ const OrdersIndex = () => {
             })));
         }
     } catch (err) {
-        console.error("Error fetching order details", err);
-        showToast("Failed to fetch order details", "error");
+        console.error("Error fetching details", err);
+        showToast("Failed to fetch details", "error");
     }
   };
 
@@ -101,7 +107,6 @@ const OrdersIndex = () => {
     const updated = [...dispatchForm];
     const val = value === '' ? '' : parseInt(value);
     
-    // LOGIC CORRECTION: Compare CURRENT input vs AVAILABLE stock
     const currentItem = updated[index];
     const qtyToSend = val || 0;
     
@@ -113,29 +118,32 @@ const OrdersIndex = () => {
     setDispatchForm(updated);
   };
 
-  // VALIDATION: Check if ANY item input exceeds available stock
   const isFormInvalid = useMemo(() => {
     return dispatchForm.some(item => {
       const qty = parseInt(item.current_dispatch) || 0;
-      // LOGIC CORRECTION: Direct comparison
       return qty > item.available_stock;
     });
   }, [dispatchForm]);
 
   const handleSaveDispatch = async () => {
-    // Safety check
     if (isFormInvalid) {
         showToast("Cannot save: One or more items exceed available stock.", "error");
+        return;
+    }
+
+    const hasItemsToDispatch = dispatchForm.some(i => (parseInt(i.current_dispatch) || 0) > 0);
+    if (!hasItemsToDispatch) {
+        showToast("Please enter a quantity to dispatch.", "error");
         return;
     }
 
     setIsSaving(true);
     try {
         const payload = {
+            dispatch_date: dispatchDate,
             items: dispatchForm.map(i => ({
-                id: i.id, 
-                // Backend expects the TOTAL dispatched count (Old + New)
-                dispatched_quantity: i.prev_dispatched + (parseInt(i.current_dispatch) || 0)
+                id: i.id,
+                quantity_sent: parseInt(i.current_dispatch) || 0 
             }))
         };
         
@@ -154,106 +162,45 @@ const OrdersIndex = () => {
 
   return (
     <div className="dashboard-container">
-      {/* GLOBAL STYLES */}
       <style>{`
-        :root {
-          --bg-body: #f8fafc;
-          --bg-card: #ffffff;
-          --text-main: #0f172a;
-          --text-muted: #64748b;
-          --primary: #059669;
-          --primary-hover: #047857;
-          --danger: #ef4444;
-          --border: #e2e8f0;
-          --highlight-bg: #d1fae5;
-          --row-hover: #f1f5f9;
-        }
-
-        .dashboard-container {
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-          background-color: var(--bg-body);
-          min-height: 100vh;
-          padding: 40px 20px;
-          padding-bottom: 100px;
-          color: var(--text-main);
-        }
+        :root { --bg-body: #f8fafc; --bg-card: #ffffff; --text-main: #0f172a; --text-muted: #64748b; --primary: #059669; --primary-hover: #047857; --danger: #ef4444; --border: #e2e8f0; --highlight-bg: #d1fae5; --row-hover: #f1f5f9; }
+        .dashboard-container { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: var(--bg-body); min-height: 100vh; padding: 40px 20px; padding-bottom: 100px; color: var(--text-main); }
         .page-title { font-size: 32px; font-weight: 800; margin-bottom: 24px; }
-
-        .card {
-          background: var(--bg-card);
-          border: 1px solid var(--border);
-          border-radius: 12px;
-          padding: 24px;
-          margin-bottom: 24px;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-        }
-
+        .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
         .form-group { display: flex; flex-direction: column; gap: 6px; }
         .form-label { font-size: 13px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; }
         .form-input { padding: 10px; border: 1px solid var(--border); border-radius: 6px; width: 100%; font-size: 14px; }
         .form-input:focus { outline: 2px solid var(--primary); border-color: transparent; }
-
         .btn { padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none; transition: all 0.2s; white-space: nowrap; }
         .btn-primary { background: var(--primary); color: white; }
         .btn-primary:hover { background: var(--primary-hover); }
-        /* Disabled state styling */
         .btn-primary:disabled { background: #cbd5e1; color: #64748b; cursor: not-allowed; opacity: 1; }
-        
         .btn-secondary { background: #f1f5f9; color: var(--text-muted); border: 1px solid var(--border); }
-
         .table-container { overflow-x: auto; border-radius: 8px; border: none; }
         .data-table { width: 100%; border-collapse: collapse; font-size: 15px; text-align: left; }
         .data-table th { background: #f8fafc; color: var(--text-muted); font-weight: 600; padding: 12px 16px; font-size: 12px; text-transform: uppercase; }
         .data-table td { padding: 8px 16px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background-color 0.2s; }
         .data-table tbody tr:hover { background-color: var(--row-hover); }
-
-        .modal-overlay {
-          position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-          background: rgba(0,0,0,0.5); backdrop-filter: blur(2px);
-          z-index: 3000; display: flex; align-items: center; justify-content: center;
-        }
-        .large-modal {
-            background: white; width: 950px; max-width: 95%; max-height: 90vh;
-            overflow-y: auto; border-radius: 12px; padding: 24px;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-            animation: popIn 0.2s ease-out;
-        }
-        
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(2px); z-index: 3000; display: flex; align-items: center; justify-content: center; }
+        .large-modal { background: white; width: 950px; max-width: 95%; max-height: 90vh; overflow-y: auto; border-radius: 12px; padding: 24px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); animation: popIn 0.2s ease-out; }
         .view-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
-        .view-value-box {
-          background: white; border: 1px solid #e2e8f0; border-radius: 6px;
-          padding: 10px 12px; font-size: 14px; font-weight: 500; color: #334155;
-          min-height: 42px; display: flex; align-items: center;
-        }
-
+        .view-value-box { background: white; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 12px; font-size: 14px; font-weight: 500; color: #334155; min-height: 42px; display: flex; align-items: center; }
         .items-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
         .items-table th { text-align: left; background: #f8fafc; padding: 8px; border-bottom: 2px solid #e2e8f0; color: #64748b; font-size: 12px; text-transform: uppercase; }
         .items-table td { border-bottom: 1px solid #e2e8f0; padding: 8px; color: #334155; vertical-align: middle; }
-
-        .dispatch-input {
-            width: 80px; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px; 
-            text-align: center; font-weight: 600;
-        }
+        .dispatch-input { width: 80px; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px; text-align: center; font-weight: 600; }
         .dispatch-input:focus { outline: 2px solid var(--primary); border-color: transparent; }
-        
-        /* Error state for input */
-        .dispatch-input.error {
-            border-color: #ef4444;
-            background-color: #fef2f2;
-            color: #b91c1c;
-        }
+        .dispatch-input.error { border-color: #ef4444; background-color: #fef2f2; color: #b91c1c; }
         .dispatch-input.error:focus { outline: 2px solid #ef4444; }
-
-        .error-text {
-            font-size: 10px; color: #ef4444; display: block; margin-top: 4px; font-weight: 600;
-        }
-
+        .error-text { font-size: 10px; color: #ef4444; display: block; margin-top: 4px; font-weight: 600; }
         .stock-tag { padding: 2px 6px; border-radius: 4px; font-size: 12px; font-weight: 600; background: #e2e8f0; color: #475569; }
         .stock-low { background: #fee2e2; color: #991b1b; }
-
         .toast-notification { position: fixed; bottom: 24px; right: 24px; padding: 12px 20px; border-radius: 8px; color: white; font-weight: 600; box-shadow: 0 4px 6px rgba(0,0,0,0.1); z-index: 4000; animation: slideIn 0.3s ease-out; }
         .toast-success { background-color: var(--primary); }
         .toast-error { background-color: var(--danger); }
+        /* History Table Styles */
+        .history-table th { background: #f1f5f9; font-size: 11px; text-transform: uppercase; padding: 8px; text-align: left; color: #64748b; }
+        .history-table td { font-size: 13px; padding: 8px; border-bottom: 1px solid #e2e8f0; color: #334155; }
         @keyframes popIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
         @keyframes slideIn { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
       `}</style>
@@ -297,7 +244,6 @@ const OrdersIndex = () => {
                   <tr><td colSpan="5" style={{textAlign:'center', padding: '40px', color: '#94a3b8'}}>No confirmed orders found.</td></tr>
                 ) : (
                   filteredData.map((order, index) => {
-                    // --- ID LOGIC (Counts based on sort order) ---
                     const displayId = sortOrder === 'asc' 
                         ? filteredData.length - index 
                         : index + 1;
@@ -350,62 +296,102 @@ const OrdersIndex = () => {
 
             <hr style={{margin: '20px 0', borderTop: '1px solid #e2e8f0'}} />
 
+            {/* --- NEW: DISPATCH DATE INPUT --- */}
+            <div style={{marginBottom: 20, display: 'flex', alignItems: 'center', gap: 10, background: '#f8fafc', padding: 15, borderRadius: 8}}>
+                <div>
+                    <label style={{fontSize: 12, fontWeight: 700, color: '#334155', display: 'block', marginBottom: 4}}>Dispatch Date</label>
+                    <input 
+                        type="date" 
+                        className="form-input" 
+                        value={dispatchDate} 
+                        onChange={(e) => setDispatchDate(e.target.value)} 
+                        style={{maxWidth: 200, background: 'white'}}
+                    />
+                </div>
+                <div style={{fontSize: 13, color: '#64748b', marginTop: 16}}>
+                    Use this date to record when these items were sent from stock.
+                </div>
+            </div>
+
             <h4 style={{fontSize: 14, fontWeight: 700, marginBottom: 12, color: '#334155'}}>Dispatch Management</h4>
             
-            {dispatchForm.length === 0 ? (
-                <p style={{fontStyle: 'italic', color: '#94a3b8'}}>No items found for this order.</p>
-            ) : (
-                <table className="items-table">
-                    <thead>
-                        <tr>
-                            <th>Item Name</th>
-                            <th>Size</th>
-                            <th style={{textAlign: 'center'}}>Ordered</th>
-                            <th style={{textAlign: 'center'}}>Avail. Stock</th>
-                            <th style={{textAlign: 'center', color: '#64748b'}}>Prev. Sent</th>
-                            <th style={{textAlign: 'center', width: '120px'}}>Send Now</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {dispatchForm.map((item, index) => {
-                            const qty = parseInt(item.current_dispatch) || 0;
-                            
-                            // LOGIC CORRECTION: Only compare current vs available
-                            const isStockExceeded = qty > item.available_stock;
+            <table className="items-table">
+                <thead>
+                    <tr>
+                        <th>Item Name</th>
+                        <th>Size</th>
+                        <th style={{textAlign: 'center'}}>Ordered</th>
+                        <th style={{textAlign: 'center'}}>Avail. Stock</th>
+                        <th style={{textAlign: 'center', color: '#64748b'}}>Prev. Sent</th>
+                        <th style={{textAlign: 'center', width: '120px'}}>Send Now</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {dispatchForm.map((item, index) => {
+                        const qty = parseInt(item.current_dispatch) || 0;
+                        const isStockExceeded = qty > item.available_stock;
 
-                            return (
-                                <tr key={item.id || index}>
-                                    <td>{item.item_name}</td>
-                                    <td>{item.size || '-'}</td>
-                                    <td style={{textAlign: 'center', fontWeight: 600}}>{item.ordered_quantity}</td>
-                                    
-                                    <td style={{textAlign: 'center'}}>
-                                        <span className={`stock-tag ${item.available_stock === 0 ? 'stock-low' : ''}`}>
-                                            {item.available_stock}
-                                        </span>
-                                    </td>
+                        return (
+                            <tr key={item.id || index}>
+                                <td>{item.item_name}</td>
+                                <td>{item.size || '-'}</td>
+                                <td style={{textAlign: 'center', fontWeight: 600}}>{item.ordered_quantity}</td>
+                                
+                                <td style={{textAlign: 'center'}}>
+                                    <span className={`stock-tag ${item.available_stock === 0 ? 'stock-low' : ''}`}>
+                                        {item.available_stock}
+                                    </span>
+                                </td>
 
-                                    <td style={{textAlign: 'center', color: '#64748b', backgroundColor: '#f8fafc'}}>
-                                        {item.prev_dispatched}
-                                    </td>
-                                    <td style={{textAlign: 'center'}}>
-                                        <input 
-                                            type="number"
-                                            className={`dispatch-input ${isStockExceeded ? 'error' : ''}`}
-                                            value={item.current_dispatch}
-                                            onChange={(e) => handleDispatchChange(index, e.target.value)}
-                                            min="0"
-                                            placeholder="0"
-                                        />
-                                        {isStockExceeded && (
-                                            <span className="error-text">Exceeds Stock</span>
-                                        )}
-                                    </td>
+                                <td style={{textAlign: 'center', color: '#64748b', backgroundColor: '#f8fafc'}}>
+                                    {item.prev_dispatched}
+                                </td>
+                                <td style={{textAlign: 'center'}}>
+                                    <input 
+                                        type="number"
+                                        className={`dispatch-input ${isStockExceeded ? 'error' : ''}`}
+                                        value={item.current_dispatch}
+                                        onChange={(e) => handleDispatchChange(index, e.target.value)}
+                                        min="0"
+                                        placeholder="0"
+                                    />
+                                    {isStockExceeded && (
+                                        <span className="error-text">Exceeds Stock</span>
+                                    )}
+                                </td>
+                            </tr>
+                        );
+                    })}
+                </tbody>
+            </table>
+
+            {/* --- NEW: DISPATCH HISTORY SECTION --- */}
+            {dispatchHistory.length > 0 && (
+                <div style={{marginTop: 30, borderTop: '1px solid #e2e8f0', paddingTop: 20}}>
+                    <h4 style={{fontSize: 14, fontWeight: 700, marginBottom: 12, color: '#334155'}}>Dispatch History</h4>
+                    <div style={{maxHeight: 200, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 8}}>
+                        <table className="items-table history-table" style={{width: '100%', margin: 0}}>
+                            <thead>
+                                <tr>
+                                    <th style={{position: 'sticky', top: 0, zIndex: 10}}>Date</th>
+                                    <th style={{position: 'sticky', top: 0, zIndex: 10}}>Item Name</th>
+                                    <th style={{position: 'sticky', top: 0, zIndex: 10}}>Size</th>
+                                    <th style={{position: 'sticky', top: 0, zIndex: 10}}>Qty Sent</th>
                                 </tr>
-                            );
-                        })}
-                    </tbody>
-                </table>
+                            </thead>
+                            <tbody>
+                                {dispatchHistory.map((log) => (
+                                    <tr key={log.id}>
+                                        <td>{formatDate(log.dispatch_date)}</td>
+                                        <td>{log.item_name}</td>
+                                        <td>{log.size || '-'}</td>
+                                        <td style={{fontWeight: 600, color: '#059669'}}>+{log.quantity_sent}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             )}
 
             <div style={{marginTop: 30, display: 'flex', justifyContent: 'flex-end', gap: 10}}>

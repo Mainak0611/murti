@@ -29,18 +29,27 @@ export const getOrderById = async (req, res) => {
 export const updateDispatch = async (req, res) => {
   const userId = req.user && req.user.id;
   const { id } = req.params;
-  const { items } = req.body; // Array of { id, dispatched_quantity }
+  
+  // 1. EXTRACT both items AND dispatch_date from the request body
+  const { items, dispatch_date } = req.body; 
 
   try {
     const order = await ordersSql.findOrderById(id);
+    
+    // Check if order exists and belongs to user
     if (!order || String(order.user_id) !== String(userId)) {
       return res.status(403).json({ error: 'Unauthorized' });
     }
 
-    await ordersSql.updateDispatchQuantities(id, items);
-    res.json({ message: 'Dispatch updated' });
+    // 2. PASS them as a single object to the SQL function
+    await ordersSql.updateDispatchQuantities(id, { 
+      dispatch_date, 
+      items 
+    });
+
+    res.json({ message: 'Dispatch updated successfully' });
   } catch (err) {
-    console.error(err);
+    console.error("Dispatch Error:", err);
     res.status(500).json({ error: 'Failed to update dispatch' });
   }
 };

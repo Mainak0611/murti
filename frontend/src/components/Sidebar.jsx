@@ -35,6 +35,7 @@ const Sidebar = () => {
         { id: 'payments', title: 'Payment Records', path: '/payments', icon: 'dollar' },
         { id: 'party-enquiries', title: 'Party Enquiries', path: '/party-enquiries', icon: 'file' },
         { id: 'orders', title: 'Confirmed Orders', path: '/confirmed-orders', icon: 'check-square' }, // New Item
+        { id: 'returns', title: 'Return Items', path: '/returns', icon: 'check-square' },
         { id: 'item-master', title: 'Item Master', path: '/item-master', icon: 'chart' },
         { id: 'settings', title: 'Settings', path: '/change-password', icon: 'cog' },
     ];
