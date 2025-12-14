@@ -1,4 +1,4 @@
-// frontend/src/modules/item/itemRoutes.js (or backend/routes/itemRoutes.js)
+// backend/routes/itemRoutes.js
 import express from 'express';
 import {
   createItem,
@@ -11,12 +11,10 @@ import { protect } from '../../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-// Protected routes - user must be authenticated
-
-router.post('/', protect, createItem);           // Create Item
-router.get('/', protect, getMyItems);            // List all my items
-router.get('/:id', protect, getItemById);        // Get one item (owner only)
-router.put('/:id', protect, updateItem);         // Update item (owner only)
-router.delete('/:id', protect, deleteItem);      // Delete item (owner only)
+router.post('/', protect, createItem);
+router.get('/', protect, getMyItems);
+router.get('/:id', protect, getItemById);
+router.put('/:id', protect, updateItem); // This now handles current_stock updates
+router.delete('/:id', protect, deleteItem);
 
 export default router;

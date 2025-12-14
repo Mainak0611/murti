@@ -1,14 +1,19 @@
 // frontend/src/components/tables/PartyEnquiryTable.jsx
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom'; 
 import api from '../../lib/api';
 
 const PartyEnquiryTable = ({ data, loading, fetchData, showToast, viewItem, setViewItem }) => {
+  const navigate = useNavigate();
   
   // --- STATE FOR EDIT MODAL ---
-  const [editItem, setEditItem] = useState(null); // The enquiry currently being edited
-  const [availableItems, setAvailableItems] = useState([]); // Item Master list for dropdown
+  const [editItem, setEditItem] = useState(null); 
+  const [availableItems, setAvailableItems] = useState([]); 
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+  
+  // State for Confirmation Loading
+  const [isConfirming, setIsConfirming] = useState(false);
 
   // Form State for Editing
   const [editForm, setEditForm] = useState({
@@ -33,7 +38,7 @@ const PartyEnquiryTable = ({ data, loading, fetchData, showToast, viewItem, setV
 
   const toInputDate = (dateString) => {
     if (!dateString) return '';
-    return new Date(dateString).toLocaleDateString('en-CA'); // YYYY-MM-DD
+    return new Date(dateString).toLocaleDateString('en-CA'); 
   };
 
   const isToday = (dateString) => {
@@ -62,7 +67,7 @@ const PartyEnquiryTable = ({ data, loading, fetchData, showToast, viewItem, setV
     setTimeout(() => circle.remove(), 600);
   };
 
-  // --- FETCH AVAILABLE ITEMS (Once on mount) ---
+  // --- FETCH AVAILABLE ITEMS ---
   useEffect(() => {
     const fetchMasterItems = async () => {
       try {
@@ -92,6 +97,25 @@ const PartyEnquiryTable = ({ data, loading, fetchData, showToast, viewItem, setV
     }
   };
 
+  // --- CONFIRM ORDER LOGIC ---
+  const handleConfirmOrder = async () => {
+    if (!viewItem) return;
+    setIsConfirming(true);
+    try {
+      await api.post(`/api/party-enquiries/${viewItem.id}/confirm`);
+      
+      showToast("Order Confirmed Successfully!", "success");
+      setViewItem(null); 
+      navigate('/confirmed-orders'); 
+      
+    } catch (err) {
+      console.error(err);
+      showToast(err.response?.data?.error || "Failed to confirm order", "error");
+    } finally {
+      setIsConfirming(false);
+    }
+  };
+
   // --- EDIT LOGIC ---
   const handleEditStart = async (e, item) => {
     e.stopPropagation();
@@ -99,22 +123,19 @@ const PartyEnquiryTable = ({ data, loading, fetchData, showToast, viewItem, setV
     setIsLoadingDetails(true);
 
     try {
-      // Fetch full details (including items) from backend
       const res = await api.get(`/api/party-enquiries/${item.id}`);
       const fullData = res.data.data;
 
-      // Populate Form
       setEditForm({
         partyName: fullData.party_name,
         contactNo: fullData.contact_no || '',
         reference: fullData.reference || '',
         remark: fullData.remark || '',
         enquiryDate: toInputDate(fullData.enquiry_date),
-        // Map backend items to form structure
         items: fullData.items ? fullData.items.map(i => ({
-            itemId: i.item_id, // Note: backend returns item_id
+            itemId: i.item_id, 
             quantity: i.quantity,
-            tempId: Math.random() // Unique ID for React List keys
+            tempId: Math.random() 
         })) : []
       });
     } catch (err) {
@@ -126,7 +147,6 @@ const PartyEnquiryTable = ({ data, loading, fetchData, showToast, viewItem, setV
     }
   };
 
-  // Handle Input Changes in Edit Modal
   const handleEditItemChange = (index, field, value) => {
     const updated = [...editForm.items];
     updated[index][field] = value;
@@ -157,9 +177,8 @@ const PartyEnquiryTable = ({ data, loading, fetchData, showToast, viewItem, setV
         reference: editForm.reference,
         remark: editForm.remark,
         enquiry_date: editForm.enquiryDate,
-        // Format items for backend
         items: editForm.items
-            .filter(i => i.itemId && i.quantity) // Remove empty rows
+            .filter(i => i.itemId && i.quantity)
             .map(i => ({
                 item_id: parseInt(i.itemId),
                 quantity: parseInt(i.quantity)
@@ -180,13 +199,9 @@ const PartyEnquiryTable = ({ data, loading, fetchData, showToast, viewItem, setV
 
   // --- VIEW LOGIC ---
   const handleViewClick = async (item) => {
-    // 1. Set basic info immediately so modal opens
     setViewItem(item); 
-    
-    // 2. Fetch full details to get the items list
     try {
         const res = await api.get(`/api/party-enquiries/${item.id}`);
-        // Update the view item with full data (including items array)
         setViewItem(res.data.data);
     } catch (err) {
         console.error("Fetch detail error", err);
@@ -214,7 +229,6 @@ const PartyEnquiryTable = ({ data, loading, fetchData, showToast, viewItem, setV
              background: white; padding: 32px; border-radius: 16px; width: 400px; max-width: 90%; text-align: center;
         }
         
-        /* Grid Layouts */
         .view-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
         .edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
         
@@ -228,6 +242,15 @@ const PartyEnquiryTable = ({ data, loading, fetchData, showToast, viewItem, setV
         .items-table th { text-align: left; background: #f8fafc; padding: 8px; border-bottom: 2px solid #e2e8f0; color: #64748b; font-size: 12px; text-transform: uppercase; }
         .items-table td { border-bottom: 1px solid #e2e8f0; padding: 8px; color: #334155; }
         
+        /* Close Button Style Fix */
+        .close-btn {
+            background: none; border: none; cursor: pointer; padding: 0;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 6px; transition: background 0.2s;
+            height: 32px; width: 32px; /* Fixed size */
+        }
+        .close-btn:hover { background: #f1f5f9; }
+
         @keyframes popIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
       `}</style>
 
@@ -255,7 +278,7 @@ const PartyEnquiryTable = ({ data, loading, fetchData, showToast, viewItem, setV
                     return (
                         <tr 
                         key={item.id} 
-                        onClick={() => handleViewClick(item)} // Changed to View Click
+                        onClick={() => handleViewClick(item)} 
                         style={{ cursor: 'pointer' }}
                         className={isRowToday ? 'row-highlight' : ''}
                         >
@@ -282,9 +305,9 @@ const PartyEnquiryTable = ({ data, loading, fetchData, showToast, viewItem, setV
       {editItem && (
         <div className="modal-overlay" onClick={() => !isSaving && setEditItem(null)}>
           <div className="large-modal" onClick={e => e.stopPropagation()}>
-            <div style={{display:'flex', justifyContent:'space-between', marginBottom: 20}}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems: 'center', marginBottom: 20}}>
                 <h2 style={{fontSize: 20, fontWeight: 800, margin:0}}>Edit Enquiry #{editItem.id}</h2>
-                <button onClick={() => setEditItem(null)} style={{background:'none', border:'none', cursor:'pointer'}}><Icons.Close /></button>
+                <button onClick={() => setEditItem(null)} className="close-btn"><Icons.Close /></button>
             </div>
 
             {isLoadingDetails ? (
@@ -317,7 +340,6 @@ const PartyEnquiryTable = ({ data, loading, fetchData, showToast, viewItem, setV
 
                     <hr style={{borderTop:'1px solid #eee', margin:'20px 0'}} />
                     
-                    {/* ITEMS SECTION */}
                     <h4 style={{fontSize: 14, fontWeight: 700, marginBottom: 10, color: '#334155'}}>Requested Items</h4>
                     {editForm.items.map((row, index) => (
                         <div key={row.tempId || index} style={{display: 'flex', gap: '10px', marginBottom: '10px', alignItems: 'center'}}>
@@ -336,7 +358,26 @@ const PartyEnquiryTable = ({ data, loading, fetchData, showToast, viewItem, setV
                             <div style={{flex: 1}}>
                                 <input type="number" className="form-input" placeholder="Qty" value={row.quantity} onChange={(e) => handleEditItemChange(index, 'quantity', e.target.value)} />
                             </div>
-                            <button type="button" onClick={() => removeEditItemRow(index)} style={{background:'#fee2e2', color:'#ef4444', border:'none', borderRadius: 4, width: 36, height: 36, cursor:'pointer'}}>&times;</button>
+                            {/* FIX: Use Flexbox centering and Icon component */}
+                            <button 
+                                type="button" 
+                                onClick={() => removeEditItemRow(index)} 
+                                style={{
+                                    background:'#fee2e2', 
+                                    color:'#ef4444', 
+                                    border:'none', 
+                                    borderRadius: 4, 
+                                    width: 36, 
+                                    height: 36, 
+                                    cursor:'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: 0
+                                }}
+                            >
+                                <Icons.X />
+                            </button>
                         </div>
                     ))}
                     <button type="button" onClick={addEditItemRow} className="btn btn-secondary" style={{fontSize: 12, padding: '4px 10px'}}>+ Add Item</button>
@@ -355,9 +396,9 @@ const PartyEnquiryTable = ({ data, loading, fetchData, showToast, viewItem, setV
       {viewItem && (
         <div className="modal-overlay" onClick={() => setViewItem(null)}>
           <div className="large-modal" onClick={(e) => e.stopPropagation()}>
-             <div style={{display:'flex', justifyContent:'space-between', marginBottom: 20}}>
+             <div style={{display:'flex', justifyContent:'space-between', alignItems: 'center', marginBottom: 20}}>
               <h2 style={{fontSize: 20, fontWeight: 800, margin:0}}>{viewItem.party_name}</h2>
-              <button onClick={() => setViewItem(null)} style={{background:'none', border:'none', cursor:'pointer'}}><Icons.Close /></button>
+              <button onClick={() => setViewItem(null)} className="close-btn"><Icons.Close /></button>
             </div>
 
             <div className="view-grid">
@@ -371,7 +412,6 @@ const PartyEnquiryTable = ({ data, loading, fetchData, showToast, viewItem, setV
                 <div className="view-value-box" style={{minHeight: 60}}>{viewItem.remark || 'No remarks provided.'}</div>
             </div>
 
-            {/* Display Items in View Mode */}
             {viewItem.items && viewItem.items.length > 0 ? (
                 <>
                     <h4 style={{fontSize: 14, fontWeight: 700, marginBottom: 10, color: '#334155'}}>Requested Items</h4>
@@ -397,6 +437,23 @@ const PartyEnquiryTable = ({ data, loading, fetchData, showToast, viewItem, setV
             ) : (
                 <p style={{fontSize: 13, color: '#94a3b8', fontStyle: 'italic'}}>No items linked to this enquiry.</p>
             )}
+
+            {/* --- CONFIRM ORDER BUTTON --- */}
+            <div style={{marginTop: 30, display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #e2e8f0', paddingTop: 20}}>
+                <button 
+                  onClick={handleConfirmOrder} 
+                  className="btn btn-primary"
+                  style={{background: '#059669', color: 'white', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8}}
+                  disabled={isConfirming}
+                >
+                  {isConfirming ? 'Processing...' : (
+                    <>
+                      <span>Confirm Order</span>
+                      <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                    </>
+                  )}
+                </button>
+            </div>
 
           </div>
         </div>
@@ -424,7 +481,7 @@ const PartyEnquiryTable = ({ data, loading, fetchData, showToast, viewItem, setV
 
 const Icons = {
   Pencil: () => <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>,
-  Trash: () => <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>,
+  Trash: () => <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>,
   TrashLarge: () => <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>,
   Save: () => <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>,
   X: () => <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>,

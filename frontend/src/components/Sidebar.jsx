@@ -9,13 +9,11 @@ const Sidebar = () => {
         setIsCollapsed(!isCollapsed);
     };
 
-    // --- Logic to get User Name (Same as used previously) ---
+    // --- Logic to get User Name ---
     const getUserName = () => {
-        // 1. Try getting from direct storage
         const storedUserName = localStorage.getItem('userName');
         if (storedUserName) return storedUserName;
         
-        // 2. Fallback: Decode from token if available
         const token = localStorage.getItem('userToken');
         if (token) {
             try {
@@ -23,26 +21,24 @@ const Sidebar = () => {
                     const payload = JSON.parse(atob(token.split('.')[1]));
                     return payload.userId || 'User';
                 }
-            } catch (e) {
-                // ignore error
-            }
+            } catch (e) { /* ignore */ }
         }
-        return 'Admin User'; // Default fallback
+        return 'Admin User';
     };
 
     const userName = getUserName();
     const userInitial = (userName && userName.charAt(0)) ? userName.charAt(0).toUpperCase() : 'A';
 
-    // NOTE: Added party-enquiries route here
+    // NOTE: Added 'orders' route here
     const menuItems = [
         { id: 'home', title: 'Dashboard', path: '/', icon: 'home' },
         { id: 'payments', title: 'Payment Records', path: '/payments', icon: 'dollar' },
         { id: 'party-enquiries', title: 'Party Enquiries', path: '/party-enquiries', icon: 'file' },
+        { id: 'orders', title: 'Confirmed Orders', path: '/confirmed-orders', icon: 'check-square' }, // New Item
         { id: 'item-master', title: 'Item Master', path: '/item-master', icon: 'chart' },
         { id: 'settings', title: 'Settings', path: '/change-password', icon: 'cog' },
     ];
 
-    // small helper to check active route (handles exact match, or root)
     const isActive = (path) => {
         if (path === '/') return location.pathname === '/';
         return location.pathname === path;
@@ -81,7 +77,7 @@ const Sidebar = () => {
 
                 /* Header */
                 .sidebar-header {
-                    height: 72px; /* Match Topbar height */
+                    height: 72px;
                     min-height: 72px;
                     max-height: 72px;
                     display: flex;
@@ -299,6 +295,7 @@ function getIcon(name) {
     switch (name) {
         case 'home': return <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>;
         case 'dollar': return <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>;
+        case 'check-square': return <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>;
         case 'file': return <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>;
         case 'chart': return <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>;
         case 'cog': return <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>;

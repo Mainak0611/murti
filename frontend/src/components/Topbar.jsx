@@ -23,6 +23,7 @@ const Topbar = () => {
         if (location.pathname.startsWith('/change-password')) return 'Settings';
         if (location.pathname.startsWith('/party-enquiries')) return 'Party Enquiries';
         if (location.pathname.startsWith('/item-master')) return 'Item Master';
+        if (location.pathname.startsWith('/confirmed-orders')) return 'Confirmed Orders';
         return 'Dashboard';
     };
 

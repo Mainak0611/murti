@@ -27,7 +27,6 @@
 
 // export default router;
 
-// backend/src/modules/partyEnquiry/partyRoutes.js
 import express from 'express';
 import {
   createPartyEnquiry,
@@ -35,27 +34,19 @@ import {
   getPartyEnquiryById,
   updatePartyEnquiry,
   deletePartyEnquiry,
-  // getAllPartyEnquiries, // Uncomment if creating an admin dashboard later
+  confirmPartyEnquiry, // Imported
 } from './partyService.js';
 import { protect } from '../../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-// --- Protected Routes (User must be logged in) ---
-
-// 1. Create a new Enquiry (Now supports adding items in the payload)
 router.post('/', protect, createPartyEnquiry);
-
-// 2. List all Enquiries for the logged-in user
 router.get('/parties', protect, getMyPartyEnquiries);
-
-// 3. Get a specific Enquiry (Now returns the 'items' list too)
 router.get('/:id', protect, getPartyEnquiryById);
-
-// 4. Update an Enquiry (Supports updating/replacing items)
 router.put('/:id', protect, updatePartyEnquiry);
-
-// 5. Delete an Enquiry (Cascades and deletes linked items automatically)
 router.delete('/:id', protect, deletePartyEnquiry);
+
+// NEW ROUTE
+router.post('/:id/confirm', protect, confirmPartyEnquiry);
 
 export default router;

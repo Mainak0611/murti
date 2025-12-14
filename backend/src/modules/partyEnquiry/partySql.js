@@ -62,24 +62,17 @@
 // };
 
 
-// backend/src/modules/partyEnquiry/partySql.js
 import pool from '../../config/db.js';
-
-/**
- * SQL helper functions for party_enquiries table
- */
 
 // --- READ OPERATIONS ---
 
 export const findPartyEnquiryById = async (id) => {
-  // 1. Get the main enquiry details
   const sqlEnquiry = `SELECT * FROM public.party_enquiries WHERE id = $1`;
   const { rows: enquiryRows } = await pool.query(sqlEnquiry, [id]);
   const enquiry = enquiryRows[0];
 
   if (!enquiry) return null;
 
-  // 2. Get the associated items (joining with items table to get names/sizes)
   const sqlItems = `
     SELECT 
       pei.id as link_id,
@@ -96,15 +89,11 @@ export const findPartyEnquiryById = async (id) => {
   `;
   const { rows: itemRows } = await pool.query(sqlItems, [id]);
 
-  // 3. Attach items to the enquiry object
   enquiry.items = itemRows;
   return enquiry;
 };
 
 export const findPartyEnquiriesByUserId = async (user_id) => {
-  // Note: This returns the list of enquiries. 
-  // If you want to show items in the main list, you'd need a more complex query,
-  // but usually, for a list view, just the main details are enough.
   const sql = `
     SELECT * FROM public.party_enquiries
     WHERE user_id = $1
@@ -123,12 +112,11 @@ export const findAllPartyEnquiries = async () => {
 // --- WRITE OPERATIONS (TRANSACTIONAL) ---
 
 export const createPartyEnquiry = async ({ user_id, party_name, contact_no, reference, remark, enquiry_date, items }) => {
-  const client = await pool.connect(); // Get a dedicated client for transaction
+  const client = await pool.connect();
 
   try {
-    await client.query('BEGIN'); // Start Transaction
+    await client.query('BEGIN');
 
-    // 1. Insert the Main Enquiry
     const insertEnquirySql = `
       INSERT INTO public.party_enquiries
         (user_id, party_name, contact_no, reference, remark, enquiry_date)
@@ -139,12 +127,9 @@ export const createPartyEnquiry = async ({ user_id, party_name, contact_no, refe
     const { rows } = await client.query(insertEnquirySql, params);
     const newEnquiry = rows[0];
 
-    // 2. Insert Items (if provided)
     if (items && Array.isArray(items) && items.length > 0) {
       for (const item of items) {
-        // Skip invalid rows
         if (!item.item_id || !item.quantity) continue;
-
         const insertItemSql = `
           INSERT INTO public.party_enquiry_items (party_enquiry_id, item_id, quantity)
           VALUES ($1, $2, $3)
@@ -153,14 +138,14 @@ export const createPartyEnquiry = async ({ user_id, party_name, contact_no, refe
       }
     }
 
-    await client.query('COMMIT'); // Save everything
+    await client.query('COMMIT');
     return newEnquiry;
 
   } catch (error) {
-    await client.query('ROLLBACK'); // Undo everything if error
+    await client.query('ROLLBACK');
     throw error;
   } finally {
-    client.release(); // Release client back to pool
+    client.release();
   }
 };
 
@@ -170,7 +155,6 @@ export const updatePartyEnquiryById = async (id, { party_name, contact_no, refer
   try {
     await client.query('BEGIN');
 
-    // 1. Update Main Enquiry
     const updateSql = `
       UPDATE public.party_enquiries
       SET party_name = COALESCE($2, party_name),
@@ -186,22 +170,17 @@ export const updatePartyEnquiryById = async (id, { party_name, contact_no, refer
     
     if (rows.length === 0) {
       await client.query('ROLLBACK');
-      return null; // Enquiry not found
+      return null;
     }
 
     const updatedEnquiry = rows[0];
 
-    // 2. Update Items (Strategy: Delete old -> Insert new)
-    // Only perform this if 'items' array was explicitly passed in the request
     if (items && Array.isArray(items)) {
-      // A. Delete existing items for this enquiry
       await client.query(`DELETE FROM public.party_enquiry_items WHERE party_enquiry_id = $1`, [id]);
 
-      // B. Insert new list
       if (items.length > 0) {
         for (const item of items) {
            if (!item.item_id || !item.quantity) continue;
-
           const insertItemSql = `
             INSERT INTO public.party_enquiry_items (party_enquiry_id, item_id, quantity)
             VALUES ($1, $2, $3)
@@ -223,9 +202,64 @@ export const updatePartyEnquiryById = async (id, { party_name, contact_no, refer
 };
 
 export const deletePartyEnquiryById = async (id) => {
-  // Because we set "ON DELETE CASCADE" in the database schema, 
-  // deleting the parent enquiry automatically wipes the child items.
   const sql = `DELETE FROM public.party_enquiries WHERE id = $1 RETURNING id`;
   const { rows } = await pool.query(sql, [id]);
   return rows.length ? rows[0] : null;
+};
+
+// --- NEW: CONFIRM ORDER TRANSACTION ---
+export const confirmEnquiryToOrder = async (enquiryId, userId) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    // 1. Fetch Enquiry
+    const enqRes = await client.query(
+      `SELECT * FROM public.party_enquiries WHERE id = $1 AND user_id = $2`,
+      [enquiryId, userId]
+    );
+
+    if (enqRes.rows.length === 0) throw new Error('ENQUIRY_NOT_FOUND');
+    const enquiry = enqRes.rows[0];
+
+    // 2. Insert into ORDERS
+    const insertOrderSql = `
+      INSERT INTO public.orders 
+        (user_id, party_name, contact_no, reference, remark, order_date, status)
+      VALUES 
+        ($1, $2, $3, $4, $5, $6, 'Pending')
+      RETURNING id;
+    `;
+    const orderDate = enquiry.enquiry_date || new Date(); 
+    const orderRes = await client.query(insertOrderSql, [
+      userId, enquiry.party_name, enquiry.contact_no, enquiry.reference, enquiry.remark, orderDate
+    ]);
+    const newOrderId = orderRes.rows[0].id;
+
+    // 3. Fetch Enquiry Items & Insert into ORDER_ITEMS
+    const itemsRes = await client.query(
+      `SELECT * FROM public.party_enquiry_items WHERE party_enquiry_id = $1`,
+      [enquiryId]
+    );
+    
+    for (const item of itemsRes.rows) {
+      await client.query(`
+        INSERT INTO public.order_items (order_id, item_id, ordered_quantity, dispatched_quantity)
+        VALUES ($1, $2, $3, 0)
+      `, [newOrderId, item.item_id, item.quantity]);
+    }
+
+    // 4. Delete Original Enquiry
+    await client.query(`DELETE FROM public.party_enquiries WHERE id = $1`, [enquiryId]);
+
+    await client.query('COMMIT');
+    return newOrderId;
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 };

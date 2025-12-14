@@ -1,20 +1,22 @@
-// frontend/src/modules/item/itemSql.js (or backend/models/itemSql.js depending on your structure)
+// backend/src/modules/itemMaster/itemMasterSql.js
 import pool from '../../config/db.js';
 
 /**
  * SQL helper functions for items table
  */
 
-export const createItem = async ({ user_id, item_name, size, hsn_code, weight, price, minimum_stock, remarks }) => {
+export const createItem = async ({ user_id, item_name, size, hsn_code, weight, price, minimum_stock, current_stock, remarks }) => {
   const sql = `
     INSERT INTO public.items
-      (user_id, item_name, size, hsn_code, weight, price, minimum_stock, remarks)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      (user_id, item_name, size, hsn_code, weight, price, minimum_stock, current_stock, remarks)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
     RETURNING *;
   `;
-  // Ensure numeric values are handled safely (default to 0 if null/undefined)
+  
+  // Ensure numeric values are handled safely
   const safePrice = price !== undefined && price !== '' ? price : 0;
-  const safeStock = minimum_stock !== undefined && minimum_stock !== '' ? minimum_stock : 0;
+  const safeMinStock = minimum_stock !== undefined && minimum_stock !== '' ? minimum_stock : 0;
+  const safeCurStock = current_stock !== undefined && current_stock !== '' ? current_stock : 0;
 
   const params = [
     user_id, 
@@ -23,7 +25,8 @@ export const createItem = async ({ user_id, item_name, size, hsn_code, weight, p
     hsn_code || null, 
     weight || null, 
     safePrice, 
-    safeStock, 
+    safeMinStock,
+    safeCurStock, // New Field
     remarks || null
   ];
 
@@ -47,7 +50,7 @@ export const findItemsByUserId = async (user_id) => {
   return rows;
 };
 
-export const updateItemById = async (id, { item_name, size, hsn_code, weight, price, minimum_stock, remarks }) => {
+export const updateItemById = async (id, { item_name, size, hsn_code, weight, price, minimum_stock, current_stock, remarks }) => {
   const sql = `
     UPDATE public.items
     SET item_name = COALESCE($2, item_name),
@@ -56,11 +59,25 @@ export const updateItemById = async (id, { item_name, size, hsn_code, weight, pr
         weight = COALESCE($5, weight),
         price = COALESCE($6, price),
         minimum_stock = COALESCE($7, minimum_stock),
-        remarks = COALESCE($8, remarks)
+        current_stock = COALESCE($8, current_stock),
+        remarks = COALESCE($9, remarks)
     WHERE id = $1
     RETURNING *;
   `;
-  const params = [id, item_name, size, hsn_code, weight, price, minimum_stock, remarks];
+  
+  // Note: COALESCE allows us to update ONLY current_stock if that's the only thing sent in the body
+  const params = [
+    id, 
+    item_name, 
+    size, 
+    hsn_code, 
+    weight, 
+    price, 
+    minimum_stock, 
+    current_stock, // New Field ($8)
+    remarks 
+  ];
+  
   const { rows } = await pool.query(sql, params);
   return rows.length ? rows[0] : null;
 };

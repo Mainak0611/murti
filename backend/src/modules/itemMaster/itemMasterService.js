@@ -1,9 +1,10 @@
-// frontend/src/modules/item/itemService.js (or backend/src/modules/itemMaster/itemMasterService.js)
+// backend/src/modules/itemMaster/itemMasterService.js
 import * as itemSql from './itemMasterSql.js';
 
 export const createItem = async (req, res) => {
   const userId = req.user && req.user.id;
-  const { item_name, size, hsn_code, weight, price, minimum_stock, remarks } = req.body;
+  // Added current_stock to destructuring
+  const { item_name, size, hsn_code, weight, price, minimum_stock, current_stock, remarks } = req.body;
 
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
   if (!item_name) return res.status(400).json({ error: 'item_name is required' });
@@ -17,6 +18,7 @@ export const createItem = async (req, res) => {
       weight,
       price,
       minimum_stock,
+      current_stock, // Pass to SQL
       remarks,
     });
     return res.status(201).json({ message: 'Item created', data: created });
@@ -40,7 +42,7 @@ export const getMyItems = async (req, res) => {
   }
 };
 
-// Get a single item by id — only if it belongs to the authenticated user
+// Get a single item by id
 export const getItemById = async (req, res) => {
   const userId = req.user && req.user.id;
   const { id } = req.params;
@@ -51,7 +53,6 @@ export const getItemById = async (req, res) => {
     const item = await itemSql.findItemById(id);
     if (!item) return res.status(404).json({ error: 'Item not found' });
     
-    // FIX: Convert both to String to handle BIGINT (string) vs Number mismatch
     if (String(item.user_id) !== String(userId)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
@@ -63,11 +64,13 @@ export const getItemById = async (req, res) => {
   }
 };
 
-// Update an item (protected) — only owner can update
+// Update an item (protected)
 export const updateItem = async (req, res) => {
   const userId = req.user && req.user.id;
   const { id } = req.params;
-  const { item_name, size, hsn_code, weight, price, minimum_stock, remarks } = req.body;
+  
+  // Added current_stock to destructuring
+  const { item_name, size, hsn_code, weight, price, minimum_stock, current_stock, remarks } = req.body;
 
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -75,13 +78,19 @@ export const updateItem = async (req, res) => {
     const existing = await itemSql.findItemById(id);
     if (!existing) return res.status(404).json({ error: 'Item not found' });
     
-    // FIX: Convert both to String
     if (String(existing.user_id) !== String(userId)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
     const updated = await itemSql.updateItemById(id, { 
-      item_name, size, hsn_code, weight, price, minimum_stock, remarks 
+      item_name, 
+      size, 
+      hsn_code, 
+      weight, 
+      price, 
+      minimum_stock, 
+      current_stock, // Pass to SQL
+      remarks 
     });
     return res.status(200).json({ message: 'Item updated', data: updated });
   } catch (err) {
@@ -90,7 +99,7 @@ export const updateItem = async (req, res) => {
   }
 };
 
-// Delete an item (protected) — only owner can delete
+// Delete an item (protected)
 export const deleteItem = async (req, res) => {
   const userId = req.user && req.user.id;
   const { id } = req.params;
@@ -101,7 +110,6 @@ export const deleteItem = async (req, res) => {
     const existing = await itemSql.findItemById(id);
     if (!existing) return res.status(404).json({ error: 'Item not found' });
     
-    // FIX: Convert both to String
     if (String(existing.user_id) !== String(userId)) {
       return res.status(403).json({ error: 'Forbidden' });
     }

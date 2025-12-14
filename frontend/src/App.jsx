@@ -9,6 +9,7 @@ import ForgotPasswordPage from './modules/auth/ForgotPasswordPage.jsx';
 import ChangePasswordPage from './modules/auth/ChangePasswordPage.jsx';
 import PartyEnquiriesPage from "./modules/partyEnquiry/index.jsx";
 import ItemMaster from "./modules/itemMaster/index.jsx";
+import ConfirmedOrders from "./modules/confirmedOrders/index.jsx";
 
 // 1. IMPORT THE HOOK
 import useScrollToTop from './hooks/useScrollToTop';
@@ -107,6 +108,7 @@ function App() {
           <Route path="/" element={<HomePage />} /> 
           <Route path="/payments" element={<PaymentTracker />} />
           <Route path="/party-enquiries" element={<PartyEnquiriesPage />} />
+          <Route path="/confirmed-orders" element={<ConfirmedOrders />} />
           <Route path="/change-password" element={<ChangePasswordPage />} />
           <Route path="/item-master" element={<ItemMaster />} />
           

@@ -5,6 +5,7 @@ import paymentRoutes from "./modules/payments/paymentRoutes.js";
 import userRoutes from "./modules/users/userRoutes.js";
 import partyRoutes from "./modules/partyEnquiry/partyRoutes.js";
 import itemRoutes from "./modules/itemMaster/itemMasterRoutes.js"; // <--- Import Item Routes
+import orderRoutes from './modules/confirmedOrders/confirmedOrdersRoutes.js';
 
 import { protect } from "./middleware/authMiddleware.js";
 
@@ -23,6 +24,8 @@ const registerRoutes = (app) => {
 
   // Register Item Master routes
   app.use("/api/items", itemRoutes); // <--- Register endpoint
+
+  app.use('/api/orders', orderRoutes);
 };
 
 export default registerRoutes;
