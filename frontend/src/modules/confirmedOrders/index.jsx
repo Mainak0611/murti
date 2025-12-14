@@ -101,25 +101,24 @@ const OrdersIndex = () => {
     const updated = [...dispatchForm];
     const val = value === '' ? '' : parseInt(value);
     
-    // Check condition immediately for UX feedback
-    // Condition: (Prev + Current) > Available Stock
+    // LOGIC CORRECTION: Compare CURRENT input vs AVAILABLE stock
     const currentItem = updated[index];
-    const totalDispatch = currentItem.prev_dispatched + (val || 0);
+    const qtyToSend = val || 0;
     
-    if (totalDispatch > currentItem.available_stock) {
-        showToast(`Total quantity (${totalDispatch}) exceeds available stock (${currentItem.available_stock})!`, 'error');
+    if (qtyToSend > currentItem.available_stock) {
+        showToast(`Quantity (${qtyToSend}) exceeds available stock (${currentItem.available_stock})!`, 'error');
     }
 
     updated[index].current_dispatch = val;
     setDispatchForm(updated);
   };
 
-  // VALIDATION: Check if ANY item exceeds the limit
+  // VALIDATION: Check if ANY item input exceeds available stock
   const isFormInvalid = useMemo(() => {
     return dispatchForm.some(item => {
       const qty = parseInt(item.current_dispatch) || 0;
-      const total = item.prev_dispatched + qty;
-      return total > item.available_stock;
+      // LOGIC CORRECTION: Direct comparison
+      return qty > item.available_stock;
     });
   }, [dispatchForm]);
 
@@ -135,7 +134,7 @@ const OrdersIndex = () => {
         const payload = {
             items: dispatchForm.map(i => ({
                 id: i.id, 
-                // Backend expects TOTAL dispatched
+                // Backend expects the TOTAL dispatched count (Old + New)
                 dispatched_quantity: i.prev_dispatched + (parseInt(i.current_dispatch) || 0)
             }))
         };
@@ -298,7 +297,7 @@ const OrdersIndex = () => {
                   <tr><td colSpan="5" style={{textAlign:'center', padding: '40px', color: '#94a3b8'}}>No confirmed orders found.</td></tr>
                 ) : (
                   filteredData.map((order, index) => {
-                    // --- UPDATED ID LOGIC ---
+                    // --- ID LOGIC (Counts based on sort order) ---
                     const displayId = sortOrder === 'asc' 
                         ? filteredData.length - index 
                         : index + 1;
@@ -370,8 +369,9 @@ const OrdersIndex = () => {
                     <tbody>
                         {dispatchForm.map((item, index) => {
                             const qty = parseInt(item.current_dispatch) || 0;
-                            const total = item.prev_dispatched + qty;
-                            const isStockExceeded = total > item.available_stock;
+                            
+                            // LOGIC CORRECTION: Only compare current vs available
+                            const isStockExceeded = qty > item.available_stock;
 
                             return (
                                 <tr key={item.id || index}>
