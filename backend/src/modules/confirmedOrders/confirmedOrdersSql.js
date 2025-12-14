@@ -43,10 +43,36 @@ export const updateDispatchQuantities = async (orderId, items) => {
     await client.query('BEGIN');
     
     for (const item of items) {
+      // 1. Get the current 'dispatched_quantity' from the DB to calculate the difference
+      const currentItemRes = await client.query(
+        `SELECT dispatched_quantity FROM public.order_items WHERE id = $1 AND order_id = $2`,
+        [item.id, orderId]
+      );
+
+      if (currentItemRes.rows.length === 0) continue; 
+
+      const oldDispatchedQty = currentItemRes.rows[0].dispatched_quantity || 0;
+      const newDispatchedQty = item.dispatched_quantity;
+      
+      // Calculate how much MORE is being sent now
+      const quantityToDeduct = newDispatchedQty - oldDispatchedQty;
+
+      // 2. Update the Order Item with the new total dispatched
       await client.query(
         `UPDATE public.order_items SET dispatched_quantity = $1 WHERE id = $2 AND order_id = $3`,
-        [item.dispatched_quantity, item.id, orderId]
+        [newDispatchedQty, item.id, orderId]
       );
+
+      // 3. Deduct the difference from the Main Item Stock
+      if (quantityToDeduct > 0) {
+        await client.query(
+          `UPDATE public.items SET current_stock = current_stock - $1 WHERE id = (
+             SELECT item_id FROM public.order_items WHERE id = $2
+           )`,
+          [quantityToDeduct, item.id]
+        );
+      }
+      // Optional: If you allow reducing dispatch (un-sending), you'd handle quantityToDeduct < 0 here too (adding back to stock).
     }
 
     // Optional: Auto-update status to 'Dispatched' if items > 0
