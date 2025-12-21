@@ -1,5 +1,4 @@
-// frontend/src/modules/PartyEnquiryForm.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../../lib/api';
 
 /**
@@ -13,37 +12,239 @@ const getTodayLocal = () => {
   return `${yyyy}-${mm}-${dd}`;
 };
 
+// --- REUSABLE SEARCHABLE SELECT COMPONENT (With Keyboard Support) ---
+const SearchableSelect = ({ options, value, onChange, placeholder, labelKey = 'name', valueKey = 'id' }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [highlightedIndex, setHighlightedIndex] = useState(0); // Track keyboard focus
+  const wrapperRef = useRef(null);
+  const listRef = useRef(null); // Ref for scrolling
+
+  // Sync internal search term with external selected value
+  useEffect(() => {
+    const selectedOption = options.find(opt => String(opt[valueKey]) === String(value));
+    if (selectedOption) {
+      setSearchTerm(selectedOption[labelKey]);
+    } else {
+      setSearchTerm('');
+    }
+  }, [value, options, labelKey, valueKey]);
+
+  // Handle outside click to close dropdown
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+        setIsOpen(false);
+        // Revert text if no valid selection was made
+        const selectedOption = options.find(opt => String(opt[valueKey]) === String(value));
+        setSearchTerm(selectedOption ? selectedOption[labelKey] : '');
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [wrapperRef, value, options, labelKey, valueKey]);
+
+  // Filter options
+  const filteredOptions = options.filter(opt => 
+    String(opt[labelKey]).toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  // Reset highlight when search changes
+  useEffect(() => {
+    setHighlightedIndex(0);
+  }, [searchTerm]);
+
+  const handleSelect = (option) => {
+    if (!option) return;
+    onChange(option[valueKey]);
+    setSearchTerm(option[labelKey]);
+    setIsOpen(false);
+  };
+
+  // --- Keyboard Navigation Handler ---
+  const handleKeyDown = (e) => {
+    if (!isOpen) {
+        if (e.key === 'ArrowDown' || e.key === 'Enter') {
+            setIsOpen(true);
+        }
+        return;
+    }
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setHighlightedIndex((prev) => 
+          prev < filteredOptions.length - 1 ? prev + 1 : prev
+        );
+        // Auto-scroll logic
+        scrollIntoView(highlightedIndex + 1);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : 0));
+        // Auto-scroll logic
+        scrollIntoView(highlightedIndex - 1);
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (filteredOptions[highlightedIndex]) {
+          handleSelect(filteredOptions[highlightedIndex]);
+        }
+        break;
+      case 'Escape':
+        setIsOpen(false);
+        break;
+      case 'Tab': 
+        setIsOpen(false);
+        break;
+      default:
+        break;
+    }
+  };
+
+  const scrollIntoView = (index) => {
+    if (listRef.current && listRef.current.children[index]) {
+        listRef.current.children[index].scrollIntoView({ block: 'nearest' });
+    }
+  };
+
+  return (
+    <div className="relative" ref={wrapperRef} style={{ position: 'relative' }}>
+      <input
+        type="text"
+        className="form-input"
+        placeholder={placeholder}
+        value={searchTerm}
+        onChange={(e) => {
+          setSearchTerm(e.target.value);
+          setIsOpen(true);
+          if(e.target.value === '') onChange(''); 
+        }}
+        onKeyDown={handleKeyDown} // <--- Added Key Handler
+        onClick={() => setIsOpen(true)}
+      />
+      
+      {isOpen && (
+        <ul 
+          ref={listRef} 
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            maxHeight: '200px',
+            overflowY: 'auto',
+            backgroundColor: '#fff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '0 0 6px 6px',
+            zIndex: 1100,
+            listStyle: 'none',
+            padding: 0,
+            margin: 0,
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+          }}
+        >
+          {filteredOptions.length > 0 ? (
+            filteredOptions.map((opt, index) => (
+              <li
+                key={opt[valueKey]}
+                onClick={() => handleSelect(opt)}
+                style={{
+                  padding: '8px 12px',
+                  cursor: 'pointer',
+                  borderBottom: '1px solid #f1f5f9',
+                  // Highlight based on index
+                  backgroundColor: index === highlightedIndex ? '#e2e8f0' : '#fff'
+                }}
+                onMouseEnter={() => setHighlightedIndex(index)} // Sync mouse hover with key index
+              >
+                {opt[labelKey]}
+              </li>
+            ))
+          ) : (
+            <li style={{ padding: '8px 12px', color: '#94a3b8' }}>No results found</li>
+          )}
+        </ul>
+      )}
+    </div>
+  );
+};
+
 const PartyEnquiryForm = ({ onSuccess, showToast }) => {
   // --- FORM STATE ---
   const [formData, setFormData] = useState({
-    partyName: '',
+    partyId: '',   
+    partyName: '', 
     contactNo: '',
     reference: '',
     remark: '',
     enquiryDate: getTodayLocal()
   });
 
-  // --- ITEM SELECTION STATE ---
+  // --- DATA SOURCES ---
   const [availableItems, setAvailableItems] = useState([]);
+  const [availableParties, setAvailableParties] = useState([]); 
+
+  // --- ITEM SELECTION STATE ---
   const [selectedItems, setSelectedItems] = useState([
     { itemId: '', quantity: '' } 
   ]);
 
   const [loading, setLoading] = useState(false);
 
-  // --- FETCH ITEM MASTER ON MOUNT ---
+  // --- FETCH MASTER DATA ON MOUNT ---
   useEffect(() => {
-    const fetchItems = async () => {
+    const fetchData = async () => {
       try {
-        const res = await api.get('/api/items');
-        const data = Array.isArray(res.data) ? res.data : (res.data.data || []);
-        setAvailableItems(data);
+        const [itemsRes, partiesRes] = await Promise.all([
+            api.get('/api/items'),
+            api.get('/api/parties')
+        ]);
+
+        const itemsData = Array.isArray(itemsRes.data) ? itemsRes.data : (itemsRes.data.data || []);
+        const formattedItems = itemsData.map(i => ({
+            ...i,
+            displayName: `${i.item_name} ${i.size ? `(${i.size})` : ''}`
+        }));
+
+        const partiesData = Array.isArray(partiesRes.data) ? partiesRes.data : (partiesRes.data.data || []);
+        const formattedParties = partiesData.map(p => ({
+            ...p,
+            displayName: `${p.party_name} ${p.firm_name ? `(${p.firm_name})` : ''}`
+        }));
+        
+        setAvailableItems(formattedItems);
+        setAvailableParties(formattedParties);
       } catch (err) {
-        console.error("Failed to load items", err);
+        console.error("Failed to load master data", err);
+        showToast("Failed to load items or parties", "error");
       }
     };
-    fetchItems();
+    fetchData();
   }, []);
+
+  // --- HANDLE PARTY CHANGE ---
+  const handlePartyChange = (selectedId) => {
+    const party = availableParties.find(p => String(p.id) === String(selectedId));
+
+    if (party) {
+        setFormData(prev => ({
+            ...prev,
+            partyId: selectedId,
+            partyName: party.party_name, 
+            contactNo: party.contact_no || '', 
+            reference: party.reference_person || '' 
+        }));
+    } else {
+        setFormData(prev => ({
+            ...prev,
+            partyId: '',
+            partyName: '',
+            contactNo: '',
+            reference: ''
+        }));
+    }
+  };
 
   // --- ITEM ROW HANDLERS ---
   const handleItemChange = (index, field, value) => {
@@ -61,21 +262,32 @@ const PartyEnquiryForm = ({ onSuccess, showToast }) => {
     setSelectedItems(updated);
   };
 
+  // --- HELPER: Calculate Weight ---
+  const calculateRowWeight = (itemId, qty) => {
+    if (!itemId || !qty) return '';
+    const item = availableItems.find(i => String(i.id) === String(itemId));
+    if (!item || !item.weight) return '';
+    const unitWeight = parseFloat(item.weight) || 0;
+    const quantity = parseFloat(qty) || 0;
+    const total = unitWeight * quantity;
+    return total > 0 ? total.toFixed(2) : '';
+  };
+
   // --- SUBMIT HANDLER ---
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (!formData.partyName) {
-      showToast('Party Name is required', 'error');
+      showToast('Party selection is required', 'error');
       return;
     }
 
-    // Filter out empty rows
     const validItems = selectedItems.filter(i => i.itemId && i.quantity);
 
     setLoading(true);
     try {
       const payload = {
+        party_id: formData.partyId, 
         party_name: formData.partyName,
         contact_no: formData.contactNo,
         reference: formData.reference,
@@ -88,11 +300,10 @@ const PartyEnquiryForm = ({ onSuccess, showToast }) => {
       };
 
       await api.post('/api/party-enquiries', payload);
-
       showToast('Enquiry added successfully!', 'success');
 
-      // Reset Form
       setFormData({
+        partyId: '',
         partyName: '',
         contactNo: '',
         reference: '',
@@ -129,14 +340,14 @@ const PartyEnquiryForm = ({ onSuccess, showToast }) => {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Party Name</label>
-            <input
-              type="text"
-              className="form-input"
-              placeholder="Enter party name"
-              value={formData.partyName}
-              onChange={(e) => setFormData({ ...formData, partyName: e.target.value })}
-              required
+            <label className="form-label">Select Party</label>
+            <SearchableSelect 
+                options={availableParties}
+                value={formData.partyId}
+                onChange={handlePartyChange}
+                placeholder="Type to search party..."
+                labelKey="displayName"
+                valueKey="id"
             />
           </div>
 
@@ -145,7 +356,7 @@ const PartyEnquiryForm = ({ onSuccess, showToast }) => {
             <input
               type="text"
               className="form-input"
-              placeholder="Phone number"
+              placeholder="Auto-filled..."
               value={formData.contactNo}
               onChange={(e) => setFormData({ ...formData, contactNo: e.target.value })}
             />
@@ -178,27 +389,30 @@ const PartyEnquiryForm = ({ onSuccess, showToast }) => {
 
         {/* --- ITEM SELECTION SECTION --- */}
         <div style={{marginBottom: '20px'}}>
-            <label className="form-label" style={{marginBottom: '10px', display: 'block'}}>Required Items</label>
+            <div style={{display: 'flex', justifyContent:'space-between', alignItems:'center', marginBottom: '10px'}}>
+               <label className="form-label" style={{marginBottom: 0}}>Required Items</label>
+            </div>
             
+            <div style={{display: 'flex', gap: '10px', marginBottom: '5px', fontSize: '12px', color: '#64748b', paddingLeft:'4px'}}>
+                <div style={{flex: 3}}>Item Name</div>
+                <div style={{flex: 1}}>Quantity</div>
+                <div style={{flex: 1}}>Total Weight (kg)</div>
+                <div style={{width: '36px'}}></div>
+            </div>
+
             {selectedItems.map((row, index) => (
                 <div key={index} style={{display: 'flex', gap: '10px', marginBottom: '10px', alignItems: 'center'}}>
-                    {/* Item Dropdown */}
-                    <div style={{flex: 2}}>
-                        <select 
-                            className="form-input" 
+                    <div style={{flex: 3}}>
+                        <SearchableSelect 
+                            options={availableItems}
                             value={row.itemId}
-                            onChange={(e) => handleItemChange(index, 'itemId', e.target.value)}
-                        >
-                            <option value="">-- Select Item --</option>
-                            {availableItems.map(item => (
-                                <option key={item.id} value={item.id}>
-                                    {item.item_name} {item.size ? `(${item.size})` : ''}
-                                </option>
-                            ))}
-                        </select>
+                            onChange={(val) => handleItemChange(index, 'itemId', val)}
+                            placeholder="Search item..."
+                            labelKey="displayName"
+                            valueKey="id"
+                        />
                     </div>
 
-                    {/* Quantity Input */}
                     <div style={{flex: 1}}>
                         <input
                             type="number"
@@ -210,7 +424,17 @@ const PartyEnquiryForm = ({ onSuccess, showToast }) => {
                         />
                     </div>
 
-                    {/* Remove Button */}
+                    <div style={{flex: 1}}>
+                         <input
+                            type="text"
+                            className="form-input"
+                            placeholder="Weight"
+                            value={calculateRowWeight(row.itemId, row.quantity)}
+                            readOnly
+                            style={{ backgroundColor: '#f8fafc', cursor: 'not-allowed' }}
+                        />
+                    </div>
+
                     <button 
                         type="button" 
                         onClick={() => removeItemRow(index)}
@@ -237,13 +461,12 @@ const PartyEnquiryForm = ({ onSuccess, showToast }) => {
             </button>
         </div>
 
-        {/* CHANGE: Added flex display and removed width: 100% from button */}
         <div className="form-actions full-width" style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <button 
             type="submit" 
             className="btn btn-primary" 
             disabled={loading}
-            style={{ minWidth: '140px' }} /* Optional: keeps it from being too small */
+            style={{ minWidth: '140px' }}
           >
             {loading ? 'Saving...' : 'Create Enquiry'}
           </button>

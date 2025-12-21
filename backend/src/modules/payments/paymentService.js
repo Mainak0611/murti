@@ -7,8 +7,10 @@ const EXCEL_TO_SQL_MAP = ['party', 'contact_no'];
 
 // --- 1. GET CONTROLLER ---
 export const getPayments = async (req, res) => {
+  const branchId = req.user.branch_id; // <--- FILTER BY BRANCH
   try {
-    const rows = await paymentSql.getPaymentsByUserId(req.user.id);
+    // Expects SQL: WHERE branch_id = $1
+    const rows = await paymentSql.getPaymentsByBranchId(branchId);
     res.json(rows);
   } catch (err) {
     console.error("Error in getPayments:", err);
@@ -18,8 +20,10 @@ export const getPayments = async (req, res) => {
 
 // --- 2. DELETE ALL ---
 export const deleteAllPayments = async (req, res) => {
+  const branchId = req.user.branch_id; // <--- SCOPE TO BRANCH
   try {
-    const result = await paymentSql.deleteAllPaymentsByUserId(req.user.id);
+    // Expects SQL: DELETE FROM payments WHERE branch_id = $1
+    const result = await paymentSql.deleteAllPaymentsByBranchId(branchId);
     res.json({
       message: `All ${result.rowCount} payment records deleted successfully.`,
       rowsDeleted: result.rowCount
@@ -33,6 +37,8 @@ export const deleteAllPayments = async (req, res) => {
 // --- 3. UPLOAD CSV/XLSX ---
 export const uploadCSV = async (req, res) => {
   const userId = req.user.id;
+  const branchId = req.user.branch_id; // <--- VITAL FOR MULTI-TENANCY
+  
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
   const filePath = req.file.path;
   let records = [];
@@ -100,8 +106,9 @@ export const uploadCSV = async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // Use SQL Helper
-    const existingPartiesPool = await paymentSql.findExistingParties(client, userId, currentMonth, currentYear);
+    // CHECK DUPLICATES: Must verify against the BRANCH, not just the user
+    // Expects SQL: SELECT party FROM payments WHERE branch_id = $1 AND ...
+    const existingPartiesPool = await paymentSql.findExistingParties(client, branchId, currentMonth, currentYear);
     
     const rowsToInsert = [];
     for (const rec of records) {
@@ -114,7 +121,8 @@ export const uploadCSV = async (req, res) => {
     }
 
     if (rowsToInsert.length > 0) {
-      const columns = [...EXCEL_TO_SQL_MAP, 'payment_status', 'user_id', 'month', 'year'];
+      // Added 'branch_id' to columns list
+      const columns = [...EXCEL_TO_SQL_MAP, 'payment_status', 'user_id', 'branch_id', 'month', 'year'];
       const values = [];
       const rowPlaceholders = [];
       let paramIndex = 1;
@@ -129,6 +137,11 @@ export const uploadCSV = async (req, res) => {
         singleRowPlaceholders.push(`$${paramIndex++}`);
         values.push(userId);
         singleRowPlaceholders.push(`$${paramIndex++}`);
+        
+        // INSERT BRANCH ID
+        values.push(branchId); 
+        singleRowPlaceholders.push(`$${paramIndex++}`);
+        
         values.push(currentMonth);
         singleRowPlaceholders.push(`$${paramIndex++}`);
         values.push(currentYear);
@@ -136,7 +149,6 @@ export const uploadCSV = async (req, res) => {
         rowPlaceholders.push(`(${singleRowPlaceholders.join(', ')})`);
       }
 
-      // Use SQL Helper
       await paymentSql.bulkInsertPayments(client, columns, values, rowPlaceholders);
     }
 
@@ -157,12 +169,14 @@ export const uploadCSV = async (req, res) => {
 // --- 4. ADD TRACKING ENTRY ---
 export const addTrackingEntry = async (req, res) => {
   const { paymentId } = req.params;
+  const branchId = req.user.branch_id;
   const { entry_date, remark } = req.body;
   
   if (!entry_date && !remark) return res.status(400).json({ error: "entry_date or remark must be provided." });
 
   try {
-    const isOwner = await paymentSql.checkPaymentOwnership(paymentId, req.user.id);
+    // Verify record belongs to this branch
+    const isOwner = await paymentSql.checkPaymentOwnership(paymentId, branchId);
     if (!isOwner) return res.status(404).json({ error: "Payment record not found or unauthorized." });
 
     const result = await paymentSql.addTrackingEntryDb(paymentId, entry_date, remark);
@@ -176,8 +190,11 @@ export const addTrackingEntry = async (req, res) => {
 // --- 5. GET TRACKING ENTRIES ---
 export const getTrackingEntries = async (req, res) => {
   const { paymentId } = req.params;
+  const branchId = req.user.branch_id;
+
   try {
-    const isOwner = await paymentSql.checkPaymentOwnership(paymentId, req.user.id);
+    // Verify record belongs to this branch
+    const isOwner = await paymentSql.checkPaymentOwnership(paymentId, branchId);
     if (!isOwner) return res.status(404).json({ error: "Payment record not found or unauthorized." });
 
     const rows = await paymentSql.getTrackingEntriesByPaymentId(paymentId);
@@ -191,13 +208,15 @@ export const getTrackingEntries = async (req, res) => {
 // --- 6. UPDATE PAYMENT STATUS ---
 export const updatePaymentStatus = async (req, res) => {
   const { id } = req.params;
+  const branchId = req.user.branch_id; // Use branchId for verification
   const { newStatus } = req.body;
   const validStatuses = ['PENDING', 'PARTIAL', 'PAID', 'NO_RESPONSE', 'CLOSE_PARTY'];
   
   if (!validStatuses.includes(newStatus)) return res.status(400).json({ error: "Invalid payment status provided." });
 
   try {
-    const result = await paymentSql.updatePaymentStatusDb(id, req.user.id, newStatus);
+    // Ensure the SQL function verifies `branch_id` matches the record
+    const result = await paymentSql.updatePaymentStatusDb(id, branchId, newStatus);
     if (result.rowCount === 0) return res.status(404).json({ error: "Payment record not found or unauthorized to update." });
     
     res.status(200).json({ message: `Status updated to ${newStatus} successfully.` });
@@ -209,6 +228,7 @@ export const updatePaymentStatus = async (req, res) => {
 
 // --- 7. MERGE PAYMENTS ---
 export const mergePayments = async (req, res) => {
+  const branchId = req.user.branch_id;
   const { targetId, sourceIds } = req.body;
   if (!targetId || !Array.isArray(sourceIds) || sourceIds.length === 0) return res.status(400).json({ error: "Invalid merge request data." });
 
@@ -220,7 +240,8 @@ export const mergePayments = async (req, res) => {
   if (isNaN(targetIdInt) || sourceIdsInt.length === 0) return res.status(400).json({ error: "Invalid IDs provided." });
 
   try {
-    await paymentSql.executeMergeTransaction(req.user.id, targetIdInt, sourceIdsInt);
+    // Pass branchId to ensure we only merge records within the same branch
+    await paymentSql.executeMergeTransaction(branchId, targetIdInt, sourceIdsInt);
     res.json({ message: "Records merged successfully (sources marked & history moved)." });
   } catch (err) {
     console.error("Merge error details:", err);
@@ -231,11 +252,12 @@ export const mergePayments = async (req, res) => {
 // --- 8. UPDATE PAYMENT DETAILS ---
 export const updatePaymentDetails = async (req, res) => {
   const { id } = req.params;
+  const branchId = req.user.branch_id;
   const { party, contact_no } = req.body;
   if (!party) return res.status(400).json({ error: "Party name is required." });
 
   try {
-    const payment = await paymentSql.updatePaymentDetailsDb(id, req.user.id, party, contact_no);
+    const payment = await paymentSql.updatePaymentDetailsDb(id, branchId, party, contact_no);
     if (!payment) return res.status(404).json({ error: "Record not found or unauthorized." });
     res.json({ message: "Details updated successfully.", payment });
   } catch (err) {
@@ -247,10 +269,12 @@ export const updatePaymentDetails = async (req, res) => {
 // --- 9. UPDATE TRACKING ENTRY ---
 export const updateTrackingEntry = async (req, res) => {
   const { id } = req.params;
+  const branchId = req.user.branch_id;
   const { entry_date, remark } = req.body;
 
   try {
-    const result = await paymentSql.updateTrackingEntryDb(id, req.user.id, entry_date, remark);
+    // Verify ownership via branchId (SQL logic usually checks joined payment's branch_id)
+    const result = await paymentSql.updateTrackingEntryDb(id, branchId, entry_date, remark);
     if (!result) return res.status(404).json({ error: "Entry not found or unauthorized." });
     res.json(result);
   } catch (err) {
@@ -262,8 +286,9 @@ export const updateTrackingEntry = async (req, res) => {
 // --- 10. DELETE TRACKING ENTRY ---
 export const deleteTrackingEntry = async (req, res) => {
   const { id } = req.params;
+  const branchId = req.user.branch_id;
   try {
-    const success = await paymentSql.deleteTrackingEntryDb(id, req.user.id);
+    const success = await paymentSql.deleteTrackingEntryDb(id, branchId);
     if (!success) return res.status(404).json({ error: "Entry not found or unauthorized." });
     res.json({ message: "Entry deleted successfully." });
   } catch (err) {
@@ -275,11 +300,12 @@ export const deleteTrackingEntry = async (req, res) => {
 // --- 11. GET MERGED CHILDREN ---
 export const getMergedPayments = async (req, res) => {
   const { id } = req.params;
+  const branchId = req.user.branch_id;
   try {
-    const isOwner = await paymentSql.checkPaymentOwnership(id, req.user.id);
+    const isOwner = await paymentSql.checkPaymentOwnership(id, branchId);
     if (!isOwner) return res.status(404).json({ error: "Payment not found or unauthorized." });
 
-    const rows = await paymentSql.getMergedChildren(id, req.user.id);
+    const rows = await paymentSql.getMergedChildren(id, branchId);
     res.json(rows);
   } catch (err) {
     console.error("Error in getMergedPayments:", err);
@@ -290,8 +316,9 @@ export const getMergedPayments = async (req, res) => {
 // --- 12. UNMERGE ---
 export const unmergePayment = async (req, res) => {
   const { id } = req.params;
+  const branchId = req.user.branch_id;
   try {
-    const isOwner = await paymentSql.checkPaymentOwnership(id, req.user.id);
+    const isOwner = await paymentSql.checkPaymentOwnership(id, branchId);
     if (!isOwner) return res.status(404).json({ error: "Record not found or unauthorized." });
 
     const payment = await paymentSql.unmergePaymentDb(id);

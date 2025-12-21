@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import api from "../../lib/api"; // Ensure this path is correct
+import api from "../../lib/api"; 
 
 // Sub Components
 import StatsOverview from "./StatsOverview";
@@ -9,137 +9,194 @@ import PaymentTables from "./PaymentTables";
 // Styles
 import "./HomePage.css";
 
+// --- 1. Helper to try Local Storage first (Optimization) ---
+const getStoredUser = () => {
+    try {
+        const potentialKeys = ['userInfo', 'user', 'userData', 'profile'];
+        for (const key of potentialKeys) {
+            const stored = localStorage.getItem(key);
+            if (stored) {
+                const parsed = JSON.parse(stored);
+                // Return if it looks like a user object
+                if (parsed.role || parsed.permissions) return parsed;
+                if (parsed.user && parsed.user.role) return parsed.user;
+            }
+        }
+    } catch (e) { return null; }
+    return null;
+};
+
 export default function HomePage() {
-  // --- State ---
-  const [stats, setStats] = useState([
-    { id: 1, label: "Records (This Month)", value: "0" },
-    { id: 2, label: "Pending (This Month)", value: "0" },
-  ]);
+  // --- STATE ---
+  const [user, setUser] = useState(getStoredUser()); // Initialize with storage if available
+  const [loading, setLoading] = useState(true);
   
+  // Dashboard Data State
+  const [stats, setStats] = useState([]);
   const [todaysPayments, setTodaysPayments] = useState([]);
   const [pastDuePayments, setPastDuePayments] = useState([]);
   const [todaysEnquiries, setTodaysEnquiries] = useState([]); 
-  const [loading, setLoading] = useState(true);
 
-  // --- Helpers ---
+  // --- DERIVED PERMISSIONS ---
+  const perms = user?.permissions || [];
+  const role = user?.role || '';
+
+  const showPayments = role === 'super_admin' || perms.includes('payment_records');
+  const salesModules = ['party_enquiries', 'confirmed_orders', 'returns_module'];
+  const showEnquiries = role === 'super_admin' || perms.some(p => salesModules.includes(p));
+  
+  const isSingleCol = (showPayments && !showEnquiries) || (!showPayments && showEnquiries);
+
+  // --- HELPERS ---
   const extractDateString = (val) => {
     if (!val) return null;
-    if (val instanceof Date && !Number.isNaN(val.getTime())) {
-      const y = val.getFullYear();
-      const m = String(val.getMonth() + 1).padStart(2, '0');
-      const d = String(val.getDate()).padStart(2, '0');
-      return `${y}-${m}-${d}`;
-    }
-    const s = String(val).trim();
-    const maybeDate = s.substring(0, 10);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(maybeDate)) return maybeDate;
-    const parsed = new Date(s);
-    if (!Number.isNaN(parsed.getTime())) {
-      const y = parsed.getFullYear();
-      const m = String(parsed.getMonth() + 1).padStart(2, '0');
-      const d = String(parsed.getDate()).padStart(2, '0');
-      return `${y}-${m}-${d}`;
-    }
-    return null;
+    const date = new Date(val);
+    if (isNaN(date.getTime())) return null;
+    return date.toISOString().split('T')[0];
   };
 
-  // --- Fetch Logic ---
+  // --- MAIN EFFECT ---
   useEffect(() => {
-    const fetchData = async () => {
+    const initDashboard = async () => {
+      setLoading(true);
       try {
-        const [paymentsRes, enquiriesRes] = await Promise.all([
-            api.get("/api/payments"),
-            api.get("/api/party-enquiries/parties")
-        ]);
-
-        let paymentData = [];
-        if (Array.isArray(paymentsRes.data)) paymentData = paymentsRes.data;
-        else if (Array.isArray(paymentsRes.data?.data)) paymentData = paymentsRes.data.data;
-        else if (paymentsRes.data?.rows && Array.isArray(paymentsRes.data.rows)) paymentData = paymentsRes.data.rows;
-        else {
-          const vals = Object.values(paymentsRes.data || {});
-          const arr = vals.find(v => Array.isArray(v));
-          paymentData = arr || [];
+        // 1. FETCH USER (If not already loaded from storage)
+        let currentUser = user;
+        if (!currentUser) {
+            // Call the new backend route
+            try {
+                const { data } = await api.get('/api/users/me');
+                currentUser = data;
+                setUser(currentUser); // Update state
+            } catch (err) {
+                console.error("Critical: Could not load user profile.", err);
+                setLoading(false);
+                return; // Stop here if we can't identify the user
+            }
         }
 
+        // Recalculate permissions with the fresh user object
+        const currentPerms = currentUser.permissions || [];
+        const currentRole = currentUser.role || '';
+        
+        const canViewPay = currentRole === 'super_admin' || currentPerms.includes('payment_records');
+        const canViewEnq = currentRole === 'super_admin' || currentPerms.some(p => salesModules.includes(p));
+
         const now = new Date();
-        const currentMonthName = now.toLocaleString('default', { month: 'long' });
-        const currentYear = now.getFullYear();
         const todayStr = extractDateString(now); 
 
-        // Stats
-        const currentMonthRecords = paymentData.filter(p => {
-            return (p.month === currentMonthName && Number(p.year) === currentYear);
-        });
-        const currentMonthCount = currentMonthRecords.length;
-        const pendingCount = currentMonthRecords.filter(p => {
-          const s = (p.payment_status || "").toString().trim().toUpperCase();
-          return s === 'PENDING';
-        }).length;
+        // 2. FETCH DASHBOARD DATA (Parallel)
+        const promises = [];
+        
+        if (canViewPay) promises.push(api.get("/api/payments"));
+        if (canViewEnq) promises.push(api.get("/api/party-enquiries/parties"));
 
-        // Payments Table
-        const dueToday = [];
-        const pastDue = [];
-        paymentData.forEach(p => {
-          const dateStr = extractDateString(p.latest_payment);
-          if (!dateStr) return; 
-          if (dateStr === todayStr) {
-            dueToday.push(p);
-          } else {
-            const [y,m,d] = dateStr.split('-').map(Number);
-            const dt = new Date(y, m - 1, d);
-            const t = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            if (dt.getTime() < t.getTime()) {
-              pastDue.push(p);
+        const results = await Promise.allSettled(promises);
+        
+        // Extract Results safely
+        let payData = [];
+        let enqData = [];
+
+        // If both were requested, results[0] is payments, results[1] is enquiries.
+        // If only one was requested, results[0] is that one.
+        let resultIndex = 0;
+
+        if (canViewPay) {
+            if (results[resultIndex]?.status === 'fulfilled') {
+                const res = results[resultIndex].value;
+                // Normalize data structure
+                if (Array.isArray(res.data)) payData = res.data;
+                else if (Array.isArray(res.data?.data)) payData = res.data.data;
+                else if (res.data?.rows) payData = res.data.rows;
+                else {
+                    const vals = Object.values(res.data || {});
+                    payData = vals.find(v => Array.isArray(v)) || [];
+                }
             }
-          }
-        });
+            resultIndex++;
+        }
 
-        // Enquiries Table
-        let enquiryData = [];
-        if (Array.isArray(enquiriesRes.data)) enquiryData = enquiriesRes.data;
-        else if (Array.isArray(enquiriesRes.data?.data)) enquiryData = enquiriesRes.data.data;
+        if (canViewEnq) {
+            if (results[resultIndex]?.status === 'fulfilled') {
+                const res = results[resultIndex].value;
+                // Normalize data structure
+                if (Array.isArray(res.data)) enqData = res.data;
+                else if (Array.isArray(res.data?.data)) enqData = res.data.data;
+            }
+        }
 
-        const todaysEnqList = enquiryData.filter(e => {
-            const eDate = extractDateString(e.enquiry_date);
-            return eDate === todayStr;
-        });
+        // 3. PROCESS DATA
+        if (canViewPay) {
+            const currentMonthName = now.toLocaleString('default', { month: 'long' });
+            const currentYear = now.getFullYear();
 
-        setStats([
-          { id: 1, label: "Records (This Month)", value: currentMonthCount.toString() },
-          { id: 2, label: "Pending (This Month)", value: pendingCount.toString() },
-        ]);
-        setTodaysPayments(dueToday);
-        setPastDuePayments(pastDue);
-        setTodaysEnquiries(todaysEnqList);
+            const currentMonthRecords = payData.filter(p => p.month === currentMonthName && Number(p.year) === currentYear);
+            const pendingCount = currentMonthRecords.filter(p => (p.payment_status || "").toString().toUpperCase() === 'PENDING').length;
+
+            const dueToday = [];
+            const pastDue = [];
+            
+            payData.forEach(p => {
+                const dStr = extractDateString(p.latest_payment);
+                if (!dStr) return;
+                
+                if (dStr === todayStr) dueToday.push(p);
+                else if (new Date(dStr) < new Date(todayStr)) pastDue.push(p);
+            });
+
+            setStats([
+                { id: 1, label: "Records (This Month)", value: String(currentMonthRecords.length) },
+                { id: 2, label: "Pending (This Month)", value: String(pendingCount) },
+            ]);
+            setTodaysPayments(dueToday);
+            setPastDuePayments(pastDue);
+        }
+
+        if (canViewEnq) {
+            const todaysEnqList = enqData.filter(e => extractDateString(e.enquiry_date) === todayStr);
+            setTodaysEnquiries(todaysEnqList);
+        }
 
       } catch (err) {
-        console.error("Error fetching dashboard data:", err);
+        console.error("Dashboard Error:", err);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchData();
-  }, []);
+    initDashboard();
+  }, []); // Run once on mount
+
+  // --- RENDER ---
+  if (loading && !user) return <div className="dashboard-container"><div className="wrapper">Loading User Profile...</div></div>;
 
   return (
     <div className="dashboard-container">
       <div className="wrapper">
         <header className="header">
           <div><h1>Murti Dashboard</h1></div>
-          
         </header>
 
-        <div className="main-grid">
-          <StatsOverview stats={stats} loading={loading} />
-          <TodaysEnquiries enquiries={todaysEnquiries} loading={loading} />
-        </div>
+        {(!showPayments && !showEnquiries) ? (
+             <div className="empty-state">
+                <h3>Welcome!</h3>
+                <p>No dashboard widgets are enabled for your role.</p>
+            </div>
+        ) : (
+            <>
+                <div className={`main-grid ${isSingleCol ? 'single-col' : ''}`}>
+                  {showPayments && <StatsOverview stats={stats} loading={loading} />}
+                  {showEnquiries && <TodaysEnquiries enquiries={todaysEnquiries} loading={loading} />}
+                </div>
 
-        <PaymentTables 
-          todaysPayments={todaysPayments} 
-          pastDuePayments={pastDuePayments} 
-        />
+                {showPayments && (
+                    <PaymentTables 
+                      todaysPayments={todaysPayments} 
+                      pastDuePayments={pastDuePayments} 
+                    />
+                )}
+            </>
+        )}
       </div>
     </div>
   );

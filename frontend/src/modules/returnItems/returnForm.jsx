@@ -1,5 +1,4 @@
-// frontend/src/modules/ReturnItemForm.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../../lib/api';
 
 const getTodayLocal = () => {
@@ -7,12 +6,161 @@ const getTodayLocal = () => {
   return d.toISOString().split('T')[0];
 };
 
+// --- REUSABLE SEARCHABLE SELECT COMPONENT (With Keyboard Support) ---
+const SearchableSelect = ({ options, value, onChange, placeholder, labelKey = 'name', valueKey = 'id' }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [highlightedIndex, setHighlightedIndex] = useState(0); 
+  const wrapperRef = useRef(null);
+  const listRef = useRef(null); 
+
+  useEffect(() => {
+    const selectedOption = options.find(opt => String(opt[valueKey]) === String(value));
+    if (selectedOption) {
+      setSearchTerm(selectedOption[labelKey]);
+    } else {
+      setSearchTerm('');
+    }
+  }, [value, options, labelKey, valueKey]);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+        setIsOpen(false);
+        const selectedOption = options.find(opt => String(opt[valueKey]) === String(value));
+        setSearchTerm(selectedOption ? selectedOption[labelKey] : '');
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [wrapperRef, value, options, labelKey, valueKey]);
+
+  const filteredOptions = options.filter(opt => 
+    String(opt[labelKey]).toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  useEffect(() => {
+    setHighlightedIndex(0);
+  }, [searchTerm]);
+
+  const handleSelect = (option) => {
+    if (!option) return;
+    onChange(option[valueKey]);
+    setSearchTerm(option[labelKey]);
+    setIsOpen(false);
+  };
+
+  const handleKeyDown = (e) => {
+    if (!isOpen) {
+        if (e.key === 'ArrowDown' || e.key === 'Enter') {
+            setIsOpen(true);
+        }
+        return;
+    }
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setHighlightedIndex((prev) => 
+          prev < filteredOptions.length - 1 ? prev + 1 : prev
+        );
+        scrollIntoView(highlightedIndex + 1);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : 0));
+        scrollIntoView(highlightedIndex - 1);
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (filteredOptions[highlightedIndex]) {
+          handleSelect(filteredOptions[highlightedIndex]);
+        }
+        break;
+      case 'Escape':
+        setIsOpen(false);
+        break;
+      case 'Tab': 
+        setIsOpen(false);
+        break;
+      default:
+        break;
+    }
+  };
+
+  const scrollIntoView = (index) => {
+    if (listRef.current && listRef.current.children[index]) {
+        listRef.current.children[index].scrollIntoView({ block: 'nearest' });
+    }
+  };
+
+  return (
+    <div className="relative" ref={wrapperRef} style={{ position: 'relative' }}>
+      <input
+        type="text"
+        className="form-input"
+        placeholder={placeholder}
+        value={searchTerm}
+        onChange={(e) => {
+          setSearchTerm(e.target.value);
+          setIsOpen(true);
+          if(e.target.value === '') onChange(''); 
+        }}
+        onKeyDown={handleKeyDown}
+        onClick={() => setIsOpen(true)}
+      />
+      
+      {isOpen && (
+        <ul 
+          ref={listRef} 
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            maxHeight: '200px',
+            overflowY: 'auto',
+            backgroundColor: '#fff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '0 0 6px 6px',
+            zIndex: 1100,
+            listStyle: 'none',
+            padding: 0,
+            margin: 0,
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+          }}
+        >
+          {filteredOptions.length > 0 ? (
+            filteredOptions.map((opt, index) => (
+              <li
+                key={opt[valueKey]}
+                onClick={() => handleSelect(opt)}
+                style={{
+                  padding: '8px 12px',
+                  cursor: 'pointer',
+                  borderBottom: '1px solid #f1f5f9',
+                  backgroundColor: index === highlightedIndex ? '#e2e8f0' : '#fff'
+                }}
+                onMouseEnter={() => setHighlightedIndex(index)}
+              >
+                {opt[labelKey]}
+              </li>
+            ))
+          ) : (
+            <li style={{ padding: '8px 12px', color: '#94a3b8' }}>No results found</li>
+          )}
+        </ul>
+      )}
+    </div>
+  );
+};
+
 const ReturnItemForm = ({ onSuccess, showToast }) => {
   // 1. General Info
   const [generalInfo, setGeneralInfo] = useState({
+    partyId: '',
     partyName: '',
     returnDate: getTodayLocal(),
-    // mainRemark removed
   });
 
   // 2. Items Array
@@ -20,21 +168,61 @@ const ReturnItemForm = ({ onSuccess, showToast }) => {
     { itemId: '', quantity: '', remark: '' }
   ]);
 
+  // --- Data Sources ---
   const [availableItems, setAvailableItems] = useState([]);
+  const [availableParties, setAvailableParties] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // Load Item Master
+  // Load Master Data
   useEffect(() => {
-    const fetchItems = async () => {
+    const fetchData = async () => {
       try {
-        const res = await api.get('/api/items');
-        setAvailableItems(Array.isArray(res.data) ? res.data : (res.data.data || []));
+        const [itemsRes, partiesRes] = await Promise.all([
+            api.get('/api/items'),
+            api.get('/api/parties')
+        ]);
+
+        // Standardize Data
+        const itemsData = Array.isArray(itemsRes.data) ? itemsRes.data : (itemsRes.data.data || []);
+        const formattedItems = itemsData.map(i => ({
+            ...i,
+            displayName: `${i.item_name} ${i.size ? `(${i.size})` : ''}`
+        }));
+
+        const partiesData = Array.isArray(partiesRes.data) ? partiesRes.data : (partiesRes.data.data || []);
+        const formattedParties = partiesData.map(p => ({
+            ...p,
+            displayName: `${p.party_name} ${p.firm_name ? `(${p.firm_name})` : ''}`
+        }));
+        
+        setAvailableItems(formattedItems);
+        setAvailableParties(formattedParties);
       } catch (err) {
-        console.error("Failed to load items", err);
+        console.error("Failed to load master data", err);
+        showToast("Failed to load items or parties", "error");
       }
     };
-    fetchItems();
+    fetchData();
   }, []);
+
+  // --- Handle Party Selection ---
+  const handlePartyChange = (selectedId) => {
+    const party = availableParties.find(p => String(p.id) === String(selectedId));
+
+    if (party) {
+        setGeneralInfo(prev => ({
+            ...prev,
+            partyId: selectedId,
+            partyName: party.party_name 
+        }));
+    } else {
+        setGeneralInfo(prev => ({
+            ...prev,
+            partyId: '',
+            partyName: ''
+        }));
+    }
+  };
 
   // --- Row Handlers ---
   const handleItemChange = (index, field, value) => {
@@ -61,7 +249,6 @@ const ReturnItemForm = ({ onSuccess, showToast }) => {
       return;
     }
 
-    // Filter valid rows (must have item and quantity)
     const validItems = items.filter(i => i.itemId && i.quantity);
     
     if (validItems.length === 0) {
@@ -71,25 +258,23 @@ const ReturnItemForm = ({ onSuccess, showToast }) => {
 
     setLoading(true);
     try {
-      // Send payload with array of items
       await api.post('/api/returns', {
+        party_id: generalInfo.partyId,
         party_name: generalInfo.partyName,
         return_date: generalInfo.returnDate,
-        // Map rows to backend format
         items: validItems.map(i => ({
             item_id: parseInt(i.itemId),
             quantity: parseInt(i.quantity),
-            remark: i.remark // Only row remark
+            remark: i.remark 
         }))
       });
 
       showToast('Returns logged & Stock updated successfully!', 'success');
       
-      // Reset Form
       setGeneralInfo({
+        partyId: '',
         partyName: '',
         returnDate: getTodayLocal(),
-        // mainRemark removed
       });
       setItems([{ itemId: '', quantity: '', remark: '' }]);
       
@@ -103,7 +288,7 @@ const ReturnItemForm = ({ onSuccess, showToast }) => {
   };
 
   return (
-    <div className="card">
+    <div className="card" style={{ overflow: 'visible' }}>
       <h3 className="section-title">Log Returned Items</h3>
       <form onSubmit={handleSubmit}>
         
@@ -119,18 +304,18 @@ const ReturnItemForm = ({ onSuccess, showToast }) => {
                 required 
             />
           </div>
+          
           <div className="form-group" style={{ gridColumn: 'span 2' }}>
-            <label className="form-label">Party Name</label>
-            <input 
-                type="text" 
-                className="form-input" 
-                placeholder="Enter Party Name" 
-                value={generalInfo.partyName} 
-                onChange={e => setGeneralInfo({...generalInfo, partyName: e.target.value})} 
-                required 
+            <label className="form-label">Select Party</label>
+            <SearchableSelect 
+                options={availableParties}
+                value={generalInfo.partyId}
+                onChange={handlePartyChange}
+                placeholder="Type to search party..."
+                labelKey="displayName"
+                valueKey="id"
             />
           </div>
-
         </div>
 
         <hr style={{margin: '20px 0', border: 'none', borderTop: '1px solid #e2e8f0'}} />
@@ -142,18 +327,14 @@ const ReturnItemForm = ({ onSuccess, showToast }) => {
             {items.map((row, index) => (
                 <div key={index} style={{display: 'flex', gap: 10, marginBottom: 10, alignItems: 'center'}}>
                     <div style={{flex: 2}}>
-                        <select 
-                            className="form-input" 
-                            value={row.itemId} 
-                            onChange={e => handleItemChange(index, 'itemId', e.target.value)}
-                        >
-                            <option value="">-- Select Item --</option>
-                            {availableItems.map(item => (
-                                <option key={item.id} value={item.id}>
-                                    {item.item_name} {item.size ? `(${item.size})` : ''}
-                                </option>
-                            ))}
-                        </select>
+                        <SearchableSelect 
+                            options={availableItems}
+                            value={row.itemId}
+                            onChange={(val) => handleItemChange(index, 'itemId', val)}
+                            placeholder="Search item..."
+                            labelKey="displayName"
+                            valueKey="id"
+                        />
                     </div>
                     <div style={{flex: 1}}>
                         <input 
@@ -183,6 +364,7 @@ const ReturnItemForm = ({ onSuccess, showToast }) => {
                             width: 38, height: 38, cursor: 'pointer',
                             display: 'flex', alignItems: 'center', justifyContent: 'center'
                         }}
+                        title="Remove Item"
                     >
                         ✕
                     </button>

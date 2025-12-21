@@ -174,6 +174,7 @@ const PartyEnquiryIndex = () => {
           width: 100%;
           box-sizing: border-box; 
           transition: filter 0.3s ease; /* Smooth blur transition */
+          overflow: visible;
         }
         .section-title { font-size: 18px; margin-bottom: 16px; margin-top: 0; font-weight: 700; }
 
@@ -229,14 +230,15 @@ const PartyEnquiryIndex = () => {
           showToast={showToast}
         />
 
-        <div ref={sentinelRef} style={{ height: '1px', marginBottom: '-1px' }} />
+        <div ref={sentinelRef} style={{ height: '1px', marginBottom: '-1px', marginTop: '80px' }} />
 
         <div 
           ref={wrapperRef} 
           style={{ 
             height: isPinned ? cardMetrics.height : 'auto',
             marginBottom: '24px',
-            position: 'relative'
+            position: 'relative',
+            overflow: 'visible'
           }}
         >
           <div 
@@ -254,13 +256,15 @@ const PartyEnquiryIndex = () => {
               transition: 'none',
               // --- BLUR LOGIC FOR PINNED CARD ---
               filter: viewItem ? 'blur(5px)' : 'none',
-              pointerEvents: viewItem ? 'none' : 'auto'
+              pointerEvents: viewItem ? 'none' : 'auto',
+              overflow: 'visible'
             } : {
               margin: 0,
               transition: 'none',
               // --- BLUR LOGIC FOR STATIC CARD ---
               filter: viewItem ? 'blur(5px)' : 'none',
-              pointerEvents: viewItem ? 'none' : 'auto'
+              pointerEvents: viewItem ? 'none' : 'auto',
+              overflow: 'visible'
             }}
           >
             <div className="enquiry-form-grid">

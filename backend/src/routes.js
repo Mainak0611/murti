@@ -7,6 +7,7 @@ import partyRoutes from "./modules/partyEnquiry/partyRoutes.js";
 import itemRoutes from "./modules/itemMaster/itemMasterRoutes.js"; // <--- Import Item Routes
 import orderRoutes from './modules/confirmedOrders/confirmedOrdersRoutes.js';
 import returnItemRoutes from './modules/returnItems/returnItemRoutes.js';
+import PartyMasterRoutes from "./modules/partyMaster/index.js";
 
 import { protect } from "./middleware/authMiddleware.js";
 
@@ -29,6 +30,9 @@ const registerRoutes = (app) => {
   app.use('/api/orders', orderRoutes);
 
   app.use('/api/returns', returnItemRoutes);
+
+  // Register Party Master routes
+  app.use("/api/parties", PartyMasterRoutes);
 };
 
 export default registerRoutes;

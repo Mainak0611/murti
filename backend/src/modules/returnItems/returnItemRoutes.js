@@ -1,13 +1,11 @@
 import express from 'express';
 import { getReturns, addReturn } from './returnItemService.js';
-import { protect } from '../../middleware/authMiddleware.js';
+import { protect, restrictTo } from '../../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-// Route: GET /api/returns
-router.get('/', protect, getReturns);
-
-// Route: POST /api/returns
-router.post('/', protect, addReturn);
+// All routes require 'returns_module' permission
+router.get('/', protect, restrictTo('returns_module'), getReturns);
+router.post('/', protect, restrictTo('returns_module'), addReturn);
 
 export default router;

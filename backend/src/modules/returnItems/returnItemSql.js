@@ -1,7 +1,7 @@
-// backend/src/modules/returns/returnItemSql.js
 import pool from '../../config/db.js';
 
-export const getAllReturns = async (userId) => {
+// Updated: Filter by Branch ID
+export const getAllReturnsByBranch = async (branchId) => {
   const sql = `
     SELECT 
       r.id,
@@ -14,23 +14,23 @@ export const getAllReturns = async (userId) => {
       i.size
     FROM public.returns r
     JOIN public.items i ON r.item_id = i.id
-    WHERE i.user_id = $1
+    WHERE r.branch_id = $1 -- <--- FILTER BY BRANCH
     ORDER BY r.return_date DESC, r.created_at DESC
   `;
-  const { rows } = await pool.query(sql, [userId]);
+  const { rows } = await pool.query(sql, [branchId]);
   return rows;
 };
 
-// --- NEW: Batch Processing Function ---
-export const createBatchReturnEntry = async ({ party_name, return_date, items }) => {
+// Updated: Insert with Branch ID
+export const createBatchReturnEntry = async ({ userId, branchId, party_name, return_date, items }) => {
   const client = await pool.connect();
   
   try {
     await client.query('BEGIN');
 
     const insertSql = `
-      INSERT INTO public.returns (party_name, item_id, quantity, return_date, remark)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO public.returns (branch_id, party_name, item_id, quantity, return_date, remark)
+      VALUES ($1, $2, $3, $4, $5, $6)
     `;
 
     const updateStockSql = `
@@ -39,12 +39,12 @@ export const createBatchReturnEntry = async ({ party_name, return_date, items })
       WHERE id = $2
     `;
 
-    // Loop through items inside the transaction
     for (const item of items) {
         if (!item.item_id || !item.quantity) continue;
 
         // 1. Insert Log
         await client.query(insertSql, [
+            branchId, // <--- SAVE BRANCH ID
             party_name, 
             item.item_id, 
             item.quantity, 
@@ -67,7 +67,8 @@ export const createBatchReturnEntry = async ({ party_name, return_date, items })
   }
 };
 
+// Check owner via Branch ID
 export const findItemOwner = async (itemId) => {
-    const res = await pool.query('SELECT user_id FROM public.items WHERE id = $1', [itemId]);
+    const res = await pool.query('SELECT user_id, branch_id FROM public.items WHERE id = $1', [itemId]);
     return res.rows[0];
 };

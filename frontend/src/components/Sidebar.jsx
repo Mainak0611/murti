@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+// frontend/src/components/Sidebar.jsx
+import React, { useState, useMemo } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
 const Sidebar = () => {
@@ -9,40 +10,88 @@ const Sidebar = () => {
         setIsCollapsed(!isCollapsed);
     };
 
-    // --- Logic to get User Name ---
-    const getUserName = () => {
-        const storedUserName = localStorage.getItem('userName');
-        if (storedUserName) return storedUserName;
-        
-        const token = localStorage.getItem('userToken');
-        if (token) {
-            try {
-                if (token.split('.').length === 3) {
-                    const payload = JSON.parse(atob(token.split('.')[1]));
-                    return payload.userId || 'User';
-                }
-            } catch (e) { /* ignore */ }
-        }
-        return 'Admin User';
+    // --- 1. MAPPING: Sidebar ID -> Backend Module Key ---
+    // FIXED: These now match your Supabase DB 'module_key' values exactly
+    const MODULE_PERMISSIONS = {
+        'payments': 'payment_records',       // Likely 'payment_records' (plural) in DB
+        'party-enquiries': 'party_enquiries', // DB has 'party_enquiries' (plural)
+        'orders': 'confirmed_orders',         // DB has 'confirmed_orders'
+        'returns': 'returns_module',          // DB has 'returns_module'
+        'item-master': 'item_master',         // DB has 'item_master'
+        'party-master': 'party_master',       // DB has 'party_master'
     };
 
-    const userName = getUserName();
+    // --- 2. GET USER DETAILS (Role & Permissions) ---
+    const getUserDetails = () => {
+        const token = localStorage.getItem('userToken');
+        let name = 'User';
+        let role = 'employee';
+        let permissions = [];
+
+        // Decode from Token
+        if (token) {
+            try {
+                const parts = token.split('.');
+                if (parts.length === 3) {
+                    const payload = JSON.parse(atob(parts[1]));
+                    name = payload.userId || payload.userName || 'User';
+                    role = payload.role || 'employee';
+                    
+                    if (Array.isArray(payload.permissions)) {
+                        permissions = payload.permissions;
+                    }
+                }
+            } catch (e) { 
+                console.error("Error decoding token", e);
+            }
+        }
+        return { name, role, permissions };
+    };
+
+    const { name: userName, role: userRole, permissions: userPermissions } = getUserDetails();
     const userInitial = (userName && userName.charAt(0)) ? userName.charAt(0).toUpperCase() : 'A';
 
-    // NOTE: Added 'orders' route here
-    const menuItems = [
+    // Base Menu Items
+    const allMenuItems = [
         { id: 'home', title: 'Dashboard', path: '/', icon: 'home' },
         { id: 'payments', title: 'Payment Records', path: '/payments', icon: 'dollar' },
         { id: 'party-enquiries', title: 'Party Enquiries', path: '/party-enquiries', icon: 'file' },
-        { id: 'orders', title: 'Confirmed Orders', path: '/confirmed-orders', icon: 'check-square' }, // New Item
+        { id: 'orders', title: 'Confirmed Orders', path: '/confirmed-orders', icon: 'check-square' },
         { id: 'returns', title: 'Return Items', path: '/returns', icon: 'check-square' },
         { id: 'item-master', title: 'Item Master', path: '/item-master', icon: 'chart' },
-        { id: 'settings', title: 'Settings', path: '/change-password', icon: 'cog' },
+        { id: 'party-master', title: 'Party Master', path: '/party-master', icon: 'file' },
+        { id: 'settings', title: 'Settings', path: '/settings', icon: 'cog' },
     ];
+
+    // --- 3. FILTER LOGIC ---
+    const visibleMenuItems = useMemo(() => {
+        // Debugging: Print permissions to console to verify what the frontend sees
+        // console.log("User Role:", userRole);
+        // console.log("User Permissions:", userPermissions);
+
+        return allMenuItems.filter(item => {
+            // A. Always show Dashboard and Settings
+            if (item.id === 'home' || item.id === 'settings') return true;
+
+            // B. Super Admin sees EVERYTHING
+            if (userRole === 'super_admin') return true;
+
+            // C. Check Permissions
+            const requiredKey = MODULE_PERMISSIONS[item.id];
+            
+            if (requiredKey) {
+                const hasAccess = userPermissions.includes(requiredKey);
+                // console.log(`Module: ${item.id}, Required: ${requiredKey}, Access: ${hasAccess}`);
+                return hasAccess;
+            }
+
+            return false; 
+        });
+    }, [userRole, userPermissions]);
 
     const isActive = (path) => {
         if (path === '/') return location.pathname === '/';
-        return location.pathname === path;
+        return location.pathname.startsWith(path);
     };
 
     return (
@@ -233,6 +282,7 @@ const Sidebar = () => {
                     color: #64748b;
                     font-size: 11px;
                     margin-top: 2px;
+                    text-transform: capitalize;
                 }
 
                 .sidebar.collapsed .user-profile-card {
@@ -252,7 +302,7 @@ const Sidebar = () => {
             
             <nav className="sidebar-nav">
                 <ul className="sidebar-menu">
-                    {menuItems.map((item) => (
+                    {visibleMenuItems.map((item) => (
                         <li key={item.id}>
                             <Link 
                                 to={item.path} 
@@ -267,7 +317,6 @@ const Sidebar = () => {
                 </ul>
             </nav>
 
-            {/* Dynamic Footer Area */}
             <div className="sidebar-footer">
                 <div className="user-profile-card">
                     <div className="profile-avatar">
@@ -276,7 +325,7 @@ const Sidebar = () => {
                     {!isCollapsed && (
                         <div className="profile-info">
                             <span className="profile-name">{userName}</span>
-                            <span className="profile-sub">View Profile</span>
+                            <span className="profile-sub">{userRole.replace('_', ' ')}</span>
                         </div>
                     )}
                 </div>

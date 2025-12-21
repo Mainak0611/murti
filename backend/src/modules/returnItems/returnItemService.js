@@ -1,10 +1,10 @@
-// backend/src/modules/returns/returnItemService.js
 import * as returnSql from './returnItemSql.js';
 
 export const getReturns = async (req, res) => {
-  const userId = req.user && req.user.id; 
+  const branchId = req.user.branch_id; // <--- FILTER BY BRANCH
   try {
-    const returns = await returnSql.getAllReturns(userId);
+    // SQL must query WHERE branch_id = $1
+    const returns = await returnSql.getAllReturnsByBranch(branchId);
     res.json({ data: returns });
   } catch (err) {
     console.error("Error fetching returns:", err);
@@ -13,9 +13,8 @@ export const getReturns = async (req, res) => {
 };
 
 export const addReturn = async (req, res) => {
-  const userId = req.user && req.user.id;
-  
-  // New Payload Structure: { party_name, return_date, items: [{ item_id, quantity, remark }] }
+  const userId = req.user.id;
+  const branchId = req.user.branch_id; // <--- BRANCH ID
   const { party_name, return_date, items } = req.body;
 
   if (!party_name || !return_date || !items || !Array.isArray(items) || items.length === 0) {
@@ -23,20 +22,21 @@ export const addReturn = async (req, res) => {
   }
 
   try {
-    // 1. Verify ownership for ALL items before processing ANY
+    // Verify items belong to this branch
     for (const item of items) {
         if (!item.item_id || !item.quantity) continue;
         
         const owner = await returnSql.findItemOwner(item.item_id);
-        if (!owner || String(owner.user_id) !== String(userId)) {
+        if (!owner || String(owner.branch_id) !== String(branchId)) {
             return res.status(403).json({ 
-                error: `Unauthorized: Item ID ${item.item_id} does not belong to you` 
+                error: `Unauthorized: Item ID ${item.item_id} does not belong to your branch` 
             });
         }
     }
 
-    // 2. Process Batch in SQL
     await returnSql.createBatchReturnEntry({
+        userId,
+        branchId, // Pass to SQL
         party_name,
         return_date,
         items

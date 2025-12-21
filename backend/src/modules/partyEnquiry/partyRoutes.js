@@ -1,32 +1,3 @@
-// import express from 'express';
-// import {
-//   createPartyEnquiry,
-//   getMyPartyEnquiries,
-//   getPartyEnquiryById,
-//   updatePartyEnquiry,
-//   deletePartyEnquiry,
-// //   getAllPartyEnquiries, // Uncomment if using admin route
-// } from './partyService.js';
-// import { protect } from '../../middleware/authMiddleware.js';
-
-// const router = express.Router();
-
-// // Protected routes - user must be authenticated
-// router.post('/', protect, createPartyEnquiry);           // Create
-
-// // --- CHANGED BELOW ---
-// router.get('/parties', protect, getMyPartyEnquiries);    // List my enquiries (Changed from /me to /parties)
-// // ---------------------
-
-// router.get('/:id', protect, getPartyEnquiryById);        // Get one (owner only)
-// router.put('/:id', protect, updatePartyEnquiry);         // Update (owner only)
-// router.delete('/:id', protect, deletePartyEnquiry);      // Delete (owner only)
-
-// // Optional admin route
-// // router.get('/', protect, isAdmin, getAllPartyEnquiries);
-
-// export default router;
-
 import express from 'express';
 import {
   createPartyEnquiry,
@@ -34,19 +5,36 @@ import {
   getPartyEnquiryById,
   updatePartyEnquiry,
   deletePartyEnquiry,
-  confirmPartyEnquiry, // Imported
+  confirmPartyEnquiry, 
 } from './partyService.js';
-import { protect } from '../../middleware/authMiddleware.js';
+import { protect, restrictTo } from '../../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-router.post('/', protect, createPartyEnquiry);
-router.get('/parties', protect, getMyPartyEnquiries);
-router.get('/:id', protect, getPartyEnquiryById);
-router.put('/:id', protect, updatePartyEnquiry);
-router.delete('/:id', protect, deletePartyEnquiry);
+// --- CONFIGURATION ---
+// 1. Who can VIEW the list of parties (for dropdowns in Orders, Payments, etc.)?
+const READ_ACCESS = [
+    'party_enquiries', 
+    'confirmed_orders', 
+    'payment_records'  // Useful if you filter payments by Party Name
+];
 
-// NEW ROUTE
-router.post('/:id/confirm', protect, confirmPartyEnquiry);
+// 2. Who can MANAGE (Create/Edit/Delete) parties?
+const WRITE_ACCESS = 'party_enquiries';
+
+
+// --- ROUTES ---
+
+// READ Routes: Allow access if user has ANY of the permissions in READ_ACCESS
+router.get('/parties', protect, restrictTo(READ_ACCESS), getMyPartyEnquiries);
+router.get('/:id', protect, restrictTo(READ_ACCESS), getPartyEnquiryById);
+
+// WRITE Routes: Strictly for 'party_enquiries' only
+router.post('/', protect, restrictTo(WRITE_ACCESS), createPartyEnquiry);
+router.put('/:id', protect, restrictTo(WRITE_ACCESS), updatePartyEnquiry);
+router.delete('/:id', protect, restrictTo(WRITE_ACCESS), deletePartyEnquiry);
+
+// Special Action: Confirming requires Write Access
+router.post('/:id/confirm', protect, restrictTo(WRITE_ACCESS), confirmPartyEnquiry);
 
 export default router;

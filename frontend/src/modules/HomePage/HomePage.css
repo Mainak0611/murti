@@ -78,15 +78,21 @@
 /* --- UPDATED GRID LAYOUT --- */
 .main-grid {
   display: grid; 
-  /* 1fr for Stats (smaller), 2fr for Table (larger) */
+  /* Default: 1fr for Stats (smaller), 2fr for Table (larger) */
   grid-template-columns: 1fr 2fr;
   gap: 24px; 
   margin-bottom: 24px;
   
-  /* THIS IS THE FIX: */
-  /* 'start' prevents the shorter card (Performance) from stretching to match the taller one (Enquiries) */
+  /* Prevents the shorter card from stretching to match the taller one */
   align-items: start; 
 }
+
+/* --- NEW: Single Column Override --- */
+/* This class is added by React when only ONE section is visible */
+.main-grid.single-col {
+  grid-template-columns: 1fr; /* Force Full Width */
+}
+
 @media (max-width: 1024px) { 
     .main-grid { grid-template-columns: 1fr; } 
 }

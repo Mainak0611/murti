@@ -20,9 +20,10 @@ const Topbar = () => {
         if (location.pathname === '/') return 'Dashboard';
         if (location.pathname.startsWith('/payments')) return 'Payment Records';
         if (location.pathname.startsWith('/reports')) return 'Reports';
-        if (location.pathname.startsWith('/change-password')) return 'Settings';
+        if (location.pathname.startsWith('/settings')) return 'Settings';
         if (location.pathname.startsWith('/party-enquiries')) return 'Party Enquiries';
         if (location.pathname.startsWith('/item-master')) return 'Item Master';
+        if (location.pathname.startsWith('/party-master')) return 'Party Master';
         if (location.pathname.startsWith('/confirmed-orders')) return 'Confirmed Orders';
         if (location.pathname.startsWith('/returns')) return 'Return Items';
         return 'Dashboard';
@@ -149,7 +150,7 @@ const Topbar = () => {
                 <div className="topbar-right">
                     {/* User Profile removed from here */}
                     
-                    <button className="icon-btn" onClick={() => navigate('/change-password')} title="Settings">
+                    <button className="icon-btn" onClick={() => navigate('/settings')} title="Settings">
                         <Icons.Settings />
                     </button>
                     
