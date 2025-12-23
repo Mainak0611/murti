@@ -37,11 +37,12 @@ export const findOrderById = async (id) => {
   const { rows: items } = await pool.query(itemsSql, [id]);
   order.items = items;
 
-  // 2. Fetch Dispatch History (Added total_weight for logs)
+  // 2. Fetch Dispatch History (Added total_weight and challan_no for logs)
   const historySql = `
     SELECT 
       dl.id,
       dl.dispatch_date,
+      dl.challan_no,
       dl.quantity_sent,
       dl.total_weight, -- <--- FETCH BATCH WEIGHT
       i.item_name,
@@ -58,7 +59,7 @@ export const findOrderById = async (id) => {
   return order;
 };
 
-export const updateDispatchQuantities = async (orderId, { dispatch_date, items }) => {
+export const updateDispatchQuantities = async (orderId, { dispatch_date, challan_no, items }) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -86,12 +87,12 @@ export const updateDispatchQuantities = async (orderId, { dispatch_date, items }
       const unitWeight = weightMap[item.id] || 0;
       const batchWeight = unitWeight * qtyToSend;
 
-      // 1. Insert into Log (With Total Weight)
+      // 1. Insert into Log (With Total Weight and Challan No)
       await client.query(
         `INSERT INTO public.dispatch_logs 
-          (order_item_id, quantity_sent, dispatch_date, total_weight) 
-         VALUES ($1, $2, $3, $4)`,
-        [item.id, qtyToSend, dispatch_date, batchWeight]
+          (order_item_id, quantity_sent, dispatch_date, challan_no, total_weight) 
+         VALUES ($1, $2, $3, $4, $5)`,
+        [item.id, qtyToSend, dispatch_date, challan_no || null, batchWeight]
       );
 
       // 2. Update Total Dispatched in Order Items

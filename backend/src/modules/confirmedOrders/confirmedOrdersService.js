@@ -42,7 +42,7 @@ export const getOrderById = async (req, res) => {
 export const updateDispatch = async (req, res) => {
   const branchId = req.user.branch_id;
   const { id } = req.params;
-  const { dispatch_date, items } = req.body; // Expecting { dispatch_date, items: [{id, quantity_sent}] }
+  const { dispatch_date, challan_no, items } = req.body; // Added challan_no
 
   // Basic Validation
   if (!dispatch_date || !items || !Array.isArray(items) || items.length === 0) {
@@ -60,7 +60,7 @@ export const updateDispatch = async (req, res) => {
     }
 
     // 3. Process the Dispatch via SQL Transaction
-    await orderSql.updateDispatchQuantities(id, { dispatch_date, items });
+    await orderSql.updateDispatchQuantities(id, { dispatch_date, challan_no, items });
 
     // 4. Return success (and maybe the updated order to refresh UI)
     const updatedOrder = await orderSql.findOrderById(id);

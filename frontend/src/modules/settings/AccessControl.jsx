@@ -12,6 +12,7 @@ const AccessControlTab = () => {
     const modules = [
         { key: 'dashboard', label: 'Dashboard', desc: 'View analytics and daily summary' },
         { key: 'confirmed_orders', label: 'Confirmed Orders', desc: 'Manage and dispatch orders' },
+        { key: 'completed_orders', label: 'Completed Orders', desc: 'View and review completed orders' },
         { key: 'party_enquiries', label: 'Party Enquiries', desc: 'Manage incoming enquiries and create orders' },
         { key: 'payment_records', label: 'Payment Records', desc: 'Track payments and merge records' },
         { key: 'returns_module', label: 'Return Items', desc: 'Log and track returned goods' },

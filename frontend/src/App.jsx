@@ -10,6 +10,7 @@ import Settings from './modules/settings/index.jsx';
 import PartyEnquiriesPage from "./modules/partyEnquiry/index.jsx";
 import ItemMaster from "./modules/itemMaster/index.jsx";
 import ConfirmedOrders from "./modules/confirmedOrders/index.jsx";
+import CompletedOrders from "./modules/completedOrders/index.jsx";
 import ReturnItems from "./modules/returnItems/index.jsx";
 import PartyMaster from "./modules/partyMaster/index.jsx";
 
@@ -111,6 +112,7 @@ function App() {
           <Route path="/payments" element={<PaymentTracker />} />
           <Route path="/party-enquiries" element={<PartyEnquiriesPage />} />
           <Route path="/confirmed-orders" element={<ConfirmedOrders />} />
+          <Route path="/completed-orders" element={<CompletedOrders />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/item-master" element={<ItemMaster />} />
           <Route path="/party-master" element={<PartyMaster />} />
