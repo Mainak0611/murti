@@ -64,7 +64,12 @@ api.interceptors.response.use(
       const isPublicEndpoint = publicEndpoints.some((endpoint) => path.includes(endpoint));
 
       if (!isPublicEndpoint) {
-        console.warn("Session expired. Logging out…");
+        console.warn("Session expired. Logging out…", {
+          url: requestUrl,
+          path: path,
+          method: error.config?.method,
+          message: error.response?.data?.message
+        });
 
         try {
           localStorage.removeItem("userToken");

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../../lib/api';
 
 /**
@@ -171,6 +172,9 @@ const SearchableSelect = ({ options, value, onChange, placeholder, labelKey = 'n
 };
 
 const PartyEnquiryForm = ({ onSuccess, showToast }) => {
+  // --- ROUTER ---
+  const navigate = useNavigate();
+
   // --- FORM STATE ---
   const [formData, setFormData] = useState({
     partyId: '',   
@@ -191,6 +195,8 @@ const PartyEnquiryForm = ({ onSuccess, showToast }) => {
   ]);
 
   const [loading, setLoading] = useState(false);
+  const [confirmedOrders, setConfirmedOrders] = useState([]);
+  const [confirmOrderMode, setConfirmOrderMode] = useState(false);
 
   // --- FETCH MASTER DATA ON MOUNT ---
   useEffect(() => {
@@ -224,7 +230,7 @@ const PartyEnquiryForm = ({ onSuccess, showToast }) => {
   }, []);
 
   // --- HANDLE PARTY CHANGE ---
-  const handlePartyChange = (selectedId) => {
+  const handlePartyChange = async (selectedId) => {
     const party = availableParties.find(p => String(p.id) === String(selectedId));
 
     if (party) {
@@ -235,6 +241,17 @@ const PartyEnquiryForm = ({ onSuccess, showToast }) => {
             contactNo: party.contact_no || '', 
             reference: party.reference_person || '' 
         }));
+
+        // Fetch confirmed orders for this party
+        try {
+          const res = await api.get('/api/orders');
+          const allOrders = res.data.data || [];
+          const partyOrders = allOrders.filter(order => String(order.party_id) === String(selectedId));
+          setConfirmedOrders(partyOrders);
+        } catch (err) {
+          console.error('Failed to fetch confirmed orders', err);
+          setConfirmedOrders([]);
+        }
     } else {
         setFormData(prev => ({
             ...prev,
@@ -243,6 +260,7 @@ const PartyEnquiryForm = ({ onSuccess, showToast }) => {
             contactNo: '',
             reference: ''
         }));
+        setConfirmedOrders([]);
     }
   };
 
@@ -284,23 +302,49 @@ const PartyEnquiryForm = ({ onSuccess, showToast }) => {
 
     const validItems = selectedItems.filter(i => i.itemId && i.quantity);
 
+    if (validItems.length === 0) {
+      showToast('Please add at least one item', 'error');
+      return;
+    }
+
     setLoading(true);
     try {
-      const payload = {
-        party_id: formData.partyId, 
-        party_name: formData.partyName,
-        contact_no: formData.contactNo,
-        reference: formData.reference,
-        remark: formData.remark,
-        enquiry_date: formData.enquiryDate,
-        items: validItems.map(i => ({
-          item_id: parseInt(i.itemId), 
-          quantity: parseInt(i.quantity) || 0
-        }))
-      };
+      if (confirmOrderMode) {
+        // Direct order creation - skip enquiry
+        const payload = {
+          party_name: formData.partyName,
+          contact_no: formData.contactNo,
+          reference: formData.reference,
+          remark: formData.remark,
+          order_date: formData.enquiryDate,
+          items: validItems.map(i => ({
+            item_id: parseInt(i.itemId), 
+            ordered_quantity: parseInt(i.quantity) || 0
+          }))
+        };
 
-      await api.post('/api/party-enquiries', payload);
-      showToast('Enquiry added successfully!', 'success');
+        await api.post('/api/orders', payload);
+        showToast('Order confirmed successfully!', 'success');
+        setConfirmOrderMode(false);
+        navigate('/confirmed-orders');
+      } else {
+        // Create enquiry
+        const enquiryPayload = {
+          party_id: formData.partyId, 
+          party_name: formData.partyName,
+          contact_no: formData.contactNo,
+          reference: formData.reference,
+          remark: formData.remark,
+          enquiry_date: formData.enquiryDate,
+          items: validItems.map(i => ({
+            item_id: parseInt(i.itemId), 
+            quantity: parseInt(i.quantity) || 0
+          }))
+        };
+
+        await api.post('/api/party-enquiries', enquiryPayload);
+        showToast('Enquiry added successfully!', 'success');
+      }
 
       setFormData({
         partyId: '',
@@ -315,7 +359,8 @@ const PartyEnquiryForm = ({ onSuccess, showToast }) => {
       if (onSuccess) onSuccess();
     } catch (err) {
       console.error(err);
-      showToast(err.response?.data?.error || 'Failed to add enquiry', 'error');
+      const errorMsg = confirmOrderMode ? 'Failed to confirm order' : 'Failed to add enquiry';
+      showToast(err.response?.data?.error || errorMsg, 'error');
     } finally {
       setLoading(false);
     }
@@ -461,7 +506,21 @@ const PartyEnquiryForm = ({ onSuccess, showToast }) => {
             </button>
         </div>
 
-        <div className="form-actions full-width" style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <div className="form-actions full-width" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+          <button 
+            type="button" 
+            className="btn btn-secondary"
+            onClick={() => {
+              setConfirmOrderMode(true);
+              setTimeout(() => {
+                document.querySelector('form').dispatchEvent(new Event('submit', { bubbles: true }));
+              }, 0);
+            }}
+            disabled={loading}
+            style={{ minWidth: '140px' }}
+          >
+            {loading ? 'Confirming...' : 'Confirm Order'}
+          </button>
           <button 
             type="submit" 
             className="btn btn-primary" 

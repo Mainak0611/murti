@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../lib/api';
 import jsPDF from 'jspdf';
@@ -6,6 +6,161 @@ import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver'; 
+
+// --- SEARCHABLE SELECT COMPONENT (With Keyboard Support) ---
+const SearchableSelect = ({ options, value, onChange, placeholder, labelKey = 'name', valueKey = 'id' }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const wrapperRef = useRef(null);
+  const listRef = useRef(null);
+
+  // Sync internal search term with external selected value
+  useEffect(() => {
+    const selectedOption = options.find(opt => String(opt[valueKey]) === String(value));
+    if (selectedOption) {
+      setSearchTerm(selectedOption[labelKey]);
+    } else {
+      setSearchTerm('');
+    }
+  }, [value, options, labelKey, valueKey]);
+
+  // Handle outside click to close dropdown
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+        setIsOpen(false);
+        // Revert text if no valid selection was made
+        const selectedOption = options.find(opt => String(opt[valueKey]) === String(value));
+        setSearchTerm(selectedOption ? selectedOption[labelKey] : '');
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [wrapperRef, value, options, labelKey, valueKey]);
+
+  // Filter options
+  const filteredOptions = options.filter(opt => 
+    String(opt[labelKey]).toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  // Reset highlight when search changes
+  useEffect(() => {
+    setHighlightedIndex(0);
+  }, [searchTerm]);
+
+  const handleSelect = (option) => {
+    if (!option) return;
+    onChange(option[valueKey]);
+    setSearchTerm(option[labelKey]);
+    setIsOpen(false);
+  };
+
+  // Keyboard Navigation Handler
+  const handleKeyDown = (e) => {
+    if (!isOpen) {
+        if (e.key === 'ArrowDown' || e.key === 'Enter') {
+            setIsOpen(true);
+        }
+        return;
+    }
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setHighlightedIndex((prev) => 
+          prev < filteredOptions.length - 1 ? prev + 1 : prev
+        );
+        scrollIntoView(highlightedIndex + 1);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : 0));
+        scrollIntoView(highlightedIndex - 1);
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (filteredOptions[highlightedIndex]) {
+          handleSelect(filteredOptions[highlightedIndex]);
+        }
+        break;
+      case 'Escape':
+        setIsOpen(false);
+        break;
+      case 'Tab': 
+        setIsOpen(false);
+        break;
+      default:
+        break;
+    }
+  };
+
+  const scrollIntoView = (index) => {
+    if (listRef.current && listRef.current.children[index]) {
+        listRef.current.children[index].scrollIntoView({ block: 'nearest' });
+    }
+  };
+
+  return (
+    <div className="relative" ref={wrapperRef} style={{ position: 'relative' }}>
+      <input
+        type="text"
+        className="form-input"
+        placeholder={placeholder}
+        value={searchTerm}
+        onChange={(e) => {
+          setSearchTerm(e.target.value);
+          setIsOpen(true);
+          if(e.target.value === '') onChange(''); 
+        }}
+        onKeyDown={handleKeyDown}
+        onClick={() => setIsOpen(true)}
+      />
+      
+      {isOpen && (
+        <ul 
+          ref={listRef} 
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            maxHeight: '200px',
+            overflowY: 'auto',
+            backgroundColor: '#fff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '0 0 6px 6px',
+            zIndex: 1100,
+            listStyle: 'none',
+            padding: 0,
+            margin: 0,
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+          }}
+        >
+          {filteredOptions.length > 0 ? (
+            filteredOptions.map((opt, index) => (
+              <li
+                key={opt[valueKey]}
+                onClick={() => handleSelect(opt)}
+                style={{
+                  padding: '8px 12px',
+                  cursor: 'pointer',
+                  borderBottom: '1px solid #f1f5f9',
+                  backgroundColor: index === highlightedIndex ? '#e2e8f0' : '#fff'
+                }}
+                onMouseEnter={() => setHighlightedIndex(index)}
+              >
+                {opt[labelKey]}
+              </li>
+            ))
+          ) : (
+            <li style={{ padding: '8px 12px', color: '#94a3b8' }}>No results found</li>
+          )}
+        </ul>
+      )}
+    </div>
+  );
+};
 
 const OrdersIndex = () => {
   const navigate = useNavigate();
@@ -29,6 +184,29 @@ const OrdersIndex = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortOrder, setSortOrder] = useState('desc');
 
+  // --- EDIT/DELETE STATE ---
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null); // { type: 'order' | 'dispatch', id, orderId? }
+  const [editingDispatchId, setEditingDispatchId] = useState(null);
+  const [editOrder, setEditOrder] = useState(null);
+  const [editForm, setEditForm] = useState({
+    partyName: '',
+    orderDate: '',
+    reference: '',
+    contactNo: '',
+    remark: '',
+    items: []
+  });
+  const [isEditSaving, setIsEditSaving] = useState(false);
+  const [availableItems, setAvailableItems] = useState([]);
+
+  // --- EDIT DISPATCH STATE (Inline) ---
+  const [editingDispatchRow, setEditingDispatchRow] = useState(null); // { dispatch_date, challan_no, original_challan_no }
+  const [editingDispatchData, setEditingDispatchData] = useState({});
+  const [editingDispatchOriginalData, setEditingDispatchOriginalData] = useState({}); // Store original quantities for validation
+  const [isEditDispatchSaving, setIsEditDispatchSaving] = useState(false);
+  const [editDispatchError, setEditDispatchError] = useState('');
+
   // --- HELPERS ---
   const showToast = (message, type = 'success') => {
     setToast({ show: true, message, type });
@@ -45,7 +223,7 @@ const OrdersIndex = () => {
   // Helper to display weight nicely
   const formatWeight = (val) => {
     const num = parseFloat(val);
-    return isNaN(num) || num === 0 ? '-' : `${num.toFixed(2)} kg`;
+    return isNaN(num) ? '-' : `${num.toFixed(2)} kg`;
   };
 
   // --- DATA FETCHING ---
@@ -61,15 +239,39 @@ const OrdersIndex = () => {
       
       setOrders(activeOrders);
     } catch (err) {
-      console.error("Fetch error:", err);
-      showToast("Failed to load orders", "error");
+      console.error("Fetch orders error:", err.response?.status, err.response?.data);
+      // Don't show error toast for background fetches
+      if (!isBackground) {
+        if (err.response?.status === 401) {
+          console.warn("Session expired during fetch orders");
+        } else if (err.response?.status === 403) {
+          showToast("You don't have permission to view orders", "error");
+        } else {
+          showToast("Failed to load orders", "error");
+        }
+      }
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchOrders(); 
+    fetchOrders();
+    // Fetch available items for dropdown
+    const fetchItems = async () => {
+      try {
+        const res = await api.get('/api/items');
+        const itemsData = Array.isArray(res.data) ? res.data : (res.data.data || []);
+        const formattedItems = itemsData.map(i => ({
+          ...i,
+          displayName: `${i.item_name} ${i.size ? `(${i.size})` : ''}`
+        }));
+        setAvailableItems(formattedItems);
+      } catch (err) {
+        console.error("Failed to load items", err);
+      }
+    };
+    fetchItems();
   }, []);
 
   // --- FILTER LOGIC ---
@@ -93,6 +295,19 @@ const OrdersIndex = () => {
     return result;
   }, [orders, searchTerm, sortOrder]);
 
+  // --- COMPUTE ITEM META FROM DISPATCH FORM ---
+  const itemMeta = useMemo(() => {
+    const meta = {};
+    if (dispatchForm && Array.isArray(dispatchForm)) {
+      dispatchForm.forEach(item => {
+        const key = item.item_name + '|' + (item.size || '');
+        if (!meta[key]) {
+          meta[key] = { name: item.item_name, size: item.size };
+        }
+      });
+    }
+    return meta;
+  }, [dispatchForm]);
 
 // --- PDF GENERATION LOGIC ---
 const generatePDF = (type) => {
@@ -139,7 +354,14 @@ const generatePDF = (type) => {
     
     // Build Transposed Data
     dispatchForm.forEach((item, idx) => {
-      const balance = item.ordered_quantity - item.prev_dispatched;
+      // Calculate actual prev_dispatched from dispatch history
+      const itemKey = item.item_name + '|' + (item.size || '');
+      const actualPrevDispatched = dispatchHistory.reduce((sum, log) => {
+        const logKey = log.item_name + '|' + (log.size || '');
+        return logKey === itemKey ? sum + (log.quantity_sent || 0) : sum;
+      }, 0);
+      
+      const balance = item.ordered_quantity - actualPrevDispatched;
       const balanceWeight = balance * (parseFloat(item.unit_weight) || 0);
       
       if (type === 'supervisor') {
@@ -160,7 +382,7 @@ const generatePDF = (type) => {
           dmData.push(['SIZE', item.size || '-']);
           dmData.push(['ORDERED', item.ordered_quantity.toString()]);
           dmData.push(['TOT.\nWT', `${parseFloat(item.total_weight || 0).toFixed(2)}`]);
-          dmData.push(['PREV.\nSENT', item.prev_dispatched.toString()]);
+          dmData.push(['PREV.\nSENT', actualPrevDispatched.toString()]);
           dmData.push(['BALANCE', balance.toString()]);
           dmData.push(['BAL.\nWEIGHT', `${balanceWeight.toFixed(2)}`]);
         } else {
@@ -168,7 +390,7 @@ const generatePDF = (type) => {
           dmData[1].push(item.size || '-');
           dmData[2].push(item.ordered_quantity.toString());
           dmData[3].push(`${parseFloat(item.total_weight || 0).toFixed(2)}`);
-          dmData[4].push(item.prev_dispatched.toString());
+          dmData[4].push(actualPrevDispatched.toString());
           dmData[5].push(balance.toString());
           dmData[6].push(`${balanceWeight.toFixed(2)}`);
         }
@@ -197,16 +419,62 @@ const generatePDF = (type) => {
           const balanceRowIdx = type === 'supervisor' ? 2 : 5; 
           const balanceWeightRowIdx = type === 'supervisor' ? 3 : 6; 
           
-          if (data.row.index === balanceRowIdx || data.row.index === balanceWeightRowIdx) {
-            data.cell.styles.fillColor = [254, 243, 199];
-            data.cell.styles.textColor = [146, 64, 14];
+          if (data.row.index === balanceRowIdx) {
+            // Balance row - light blue background
+            data.cell.styles.fillColor = [207, 236, 247];
+            data.cell.styles.textColor = [3, 105, 161];
+            data.cell.styles.fontStyle = 'bold';
+          } else if (data.row.index === balanceWeightRowIdx) {
+            // Balance Weight row - light coral background
+            data.cell.styles.fillColor = [254, 230, 207];
+            data.cell.styles.textColor = [153, 89, 29];
             data.cell.styles.fontStyle = 'bold';
           }
         }
       }
     });
 
-    currentY = doc.lastAutoTable.finalY + 8;
+    currentY = doc.lastAutoTable.finalY + 6;
+
+    // --- 3.5 TOTAL BALANCE WEIGHT BLOCK ---
+    // Calculate total balance weight
+    let totalBalanceWeight = 0;
+    dispatchForm.forEach(item => {
+      // Calculate actual prev_dispatched from dispatch history
+      const itemKey = item.item_name + '|' + (item.size || '');
+      const actualPrevDispatched = dispatchHistory.reduce((sum, log) => {
+        const logKey = log.item_name + '|' + (log.size || '');
+        return logKey === itemKey ? sum + (log.quantity_sent || 0) : sum;
+      }, 0);
+      const balance = item.ordered_quantity - actualPrevDispatched;
+      const balanceWeight = balance * (parseFloat(item.unit_weight) || 0);
+      totalBalanceWeight += balanceWeight;
+    });
+
+    // Add total balance weight section with background highlight
+    const balanceWeightText = `Total Balance Weight: ${totalBalanceWeight.toFixed(2)} kg`;
+    doc.setFontSize(15);
+    doc.setFont(undefined, 'bold');
+    const textWidth = doc.getTextWidth(balanceWeightText);
+    const boxHeight = 9;
+    const boxPadding = 2;
+    const boxX = 12;
+    const boxY = currentY - 5;
+    
+    // Draw background rectangle (light green color)
+    doc.setFillColor(220, 252, 231);
+    doc.rect(boxX, boxY, textWidth + 8, boxHeight, 'F');
+    
+    // Draw border rectangle
+    doc.setDrawColor(34, 197, 94);
+    doc.setLineWidth(0.5);
+    doc.rect(boxX, boxY, textWidth + 8, boxHeight);
+    
+    // Draw text
+    doc.setTextColor(22, 101, 52); // Dark green text
+    doc.text(balanceWeightText, boxX + 4, currentY + 1);
+
+    currentY += 10;
 
     // --- 4. DISPATCH HISTORY TABLE ---
     if (dispatchHistory.length > 0 && type !== 'supervisor') {
@@ -349,7 +617,12 @@ const generatePDF = (type) => {
       
       itemKeys.forEach(key => {
         const matchingItem = dispatchForm.find(item => (item.item_name + '|' + (item.size || '')) === key);
-        const balance = matchingItem ? (matchingItem.ordered_quantity - matchingItem.prev_dispatched) : 0;
+        // Calculate actual prev_dispatched from dispatch history
+        const actualPrevDispatched = dispatchHistory.reduce((sum, log) => {
+          const logKey = log.item_name + '|' + (log.size || '');
+          return logKey === key ? sum + (log.quantity_sent || 0) : sum;
+        }, 0);
+        const balance = matchingItem ? (matchingItem.ordered_quantity - actualPrevDispatched) : 0;
         pendingRow.push(balance.toString());
         
         pendingTotalQty += balance;
@@ -450,47 +723,99 @@ const generateExcel = async (type) => {
       const weightRow = wsDispatch.addRow(['Total Weight', ...dispatchForm.map(i => formatWeight(i.total_weight || (i.unit_weight * i.ordered_quantity)))]);
       applyBorderToRow(weightRow);
 
-      const prevSentRow = wsDispatch.addRow(['Prev. Sent', ...dispatchForm.map(i => i.prev_dispatched)]);
+      const prevSentRow = wsDispatch.addRow(['Prev. Sent', ...dispatchForm.map(i => {
+        // Calculate actual prev_dispatched from dispatch history
+        const itemKey = i.item_name + '|' + (i.size || '');
+        return dispatchHistory.reduce((sum, log) => {
+          const logKey = log.item_name + '|' + (log.size || '');
+          return logKey === itemKey ? sum + (log.quantity_sent || 0) : sum;
+        }, 0);
+      })]);
       applyBorderToRow(prevSentRow);
     }
     
-    // 4. Balance Row (Highlighted + Borders)
-    const balanceRow = wsDispatch.addRow(['Balance', ...dispatchForm.map(i => i.ordered_quantity - i.prev_dispatched)]);
+    // 4. Balance Row (Highlighted + Borders) - Light Blue
+    const balanceRow = wsDispatch.addRow(['Balance', ...dispatchForm.map(i => {
+      // Calculate actual prev_dispatched from dispatch history
+      const itemKey = i.item_name + '|' + (i.size || '');
+      const actualPrevDispatched = dispatchHistory.reduce((sum, log) => {
+        const logKey = log.item_name + '|' + (log.size || '');
+        return logKey === itemKey ? sum + (log.quantity_sent || 0) : sum;
+      }, 0);
+      return i.ordered_quantity - actualPrevDispatched;
+    })]);
     for (let col = 1; col <= dispatchForm.length + 1; col++) {
       const cell = balanceRow.getCell(col);
-      // Background Color
+      // Background Color - Light Blue
       cell.fill = { 
         type: 'pattern', 
         pattern: 'solid', 
-        fgColor: { argb: 'FFFEF3C7' } 
+        fgColor: { argb: 'FFCFECF7' } 
       };
       // Font Style
-      cell.font = { bold: true, color: { argb: 'FF92400E' } };
+      cell.font = { bold: true, color: { argb: 'FF0369A1' } };
       // Alignment
       cell.alignment = { horizontal: col === 1 ? 'left' : 'center', vertical: 'middle' };
       // BORDERS (Added)
       cell.border = thinBorder;
     }
     
-    // 5. Balance Weight Row (Highlighted + Borders)
+    // 5. Balance Weight Row (Highlighted + Borders) - Light Coral
     const weightRow = wsDispatch.addRow(['Balance Weight', ...dispatchForm.map(i => {
-      const balance = i.ordered_quantity - i.prev_dispatched;
+      // Calculate actual prev_dispatched from dispatch history
+      const itemKey = i.item_name + '|' + (i.size || '');
+      const actualPrevDispatched = dispatchHistory.reduce((sum, log) => {
+        const logKey = log.item_name + '|' + (log.size || '');
+        return logKey === itemKey ? sum + (log.quantity_sent || 0) : sum;
+      }, 0);
+      const balance = i.ordered_quantity - actualPrevDispatched;
       const balanceWeight = balance * (parseFloat(i.unit_weight) || 0);
       return formatWeight(balanceWeight);
     })]);
     for (let col = 1; col <= dispatchForm.length + 1; col++) {
       const cell = weightRow.getCell(col);
-      // Background Color
+      // Background Color - Light Coral
       cell.fill = { 
         type: 'pattern', 
         pattern: 'solid', 
-        fgColor: { argb: 'FFFEF3C7' } 
+        fgColor: { argb: 'FFFEE6CF' } 
       };
       // Font Style
-      cell.font = { bold: true, color: { argb: 'FF92400E' } };
+      cell.font = { bold: true, color: { argb: 'FF99591D' } };
       // Alignment
       cell.alignment = { horizontal: col === 1 ? 'left' : 'center', vertical: 'middle' };
       // BORDERS (Added)
+      cell.border = thinBorder;
+    }
+
+    // 6. Total Balance Weight Row
+    let totalBalanceWeight = 0;
+    dispatchForm.forEach(i => {
+      // Calculate actual prev_dispatched from dispatch history
+      const itemKey = i.item_name + '|' + (i.size || '');
+      const actualPrevDispatched = dispatchHistory.reduce((sum, log) => {
+        const logKey = log.item_name + '|' + (log.size || '');
+        return logKey === itemKey ? sum + (log.quantity_sent || 0) : sum;
+      }, 0);
+      const balance = i.ordered_quantity - actualPrevDispatched;
+      const balanceWeight = balance * (parseFloat(i.unit_weight) || 0);
+      totalBalanceWeight += balanceWeight;
+    });
+
+    const totalBalanceWeightRow = wsDispatch.addRow(['TOTAL BALANCE WEIGHT', ...Array(dispatchForm.length).fill(''), formatWeight(totalBalanceWeight)]);
+    for (let col = 1; col <= dispatchForm.length + 1; col++) {
+      const cell = totalBalanceWeightRow.getCell(col);
+      // Background Color - Match Balance Weight color
+      cell.fill = { 
+        type: 'pattern', 
+        pattern: 'solid', 
+        fgColor: { argb: 'FFFEE6CF' } 
+      };
+      // Font Style
+      cell.font = { bold: true, color: { argb: 'FF99591D' } };
+      // Alignment
+      cell.alignment = { horizontal: col === 1 ? 'left' : 'center', vertical: 'middle' };
+      // BORDERS
       cell.border = thinBorder;
     }
     
@@ -621,7 +946,12 @@ const generateExcel = async (type) => {
         const matchingItem = dispatchForm.find(item => 
           (item.item_name + '|' + (item.size || '')) === key
         );
-        const balance = matchingItem ? (matchingItem.ordered_quantity - matchingItem.prev_dispatched) : 0;
+        // Calculate actual prev_dispatched from dispatch history
+        const actualPrevDispatched = dispatchHistory.reduce((sum, log) => {
+          const logKey = log.item_name + '|' + (log.size || '');
+          return logKey === key ? sum + (log.quantity_sent || 0) : sum;
+        }, 0);
+        const balance = matchingItem ? (matchingItem.ordered_quantity - actualPrevDispatched) : 0;
         pendingRowData.push(balance);
         pendingTotalQty += balance;
         if (matchingItem && balance > 0) {
@@ -775,13 +1105,312 @@ const generateExcel = async (type) => {
                 showToast("Order moved to completed orders", "success");
             }
         } catch (err) {
-            console.error("Error refreshing order details", err);
+            console.error("Error refreshing order details", err.response?.status, err.response?.data);
         }
     } catch (err) {
-        console.error(err);
-        showToast("Failed to save dispatch details", "error");
+        console.error("Save dispatch error:", err.response?.status, err.response?.data);
+        if (err.response?.status === 401) {
+          console.warn("Session expired during save dispatch");
+        } else if (err.response?.status === 403) {
+          showToast("You don't have permission to update dispatch", "error");
+        } else {
+          showToast(err.response?.data?.error || "Failed to save dispatch details", "error");
+        }
     } finally {
         setIsSaving(false);
+    }
+  };
+
+  // --- EDIT/DELETE HANDLERS ---
+  const handleEditOrder = async (e, order) => {
+    e.stopPropagation();
+    // Fetch full order details with items
+    try {
+      const res = await api.get(`/api/orders/${order.id}`);
+      const fullOrder = res.data.data;
+      
+      setEditOrder(fullOrder);
+      setEditForm({
+        partyName: fullOrder.party_name || '',
+        orderDate: fullOrder.order_date ? new Date(fullOrder.order_date).toISOString().split('T')[0] : '',
+        reference: fullOrder.reference || '',
+        contactNo: fullOrder.contact_no || '',
+        remark: fullOrder.remark || '',
+        items: (fullOrder.items || []).map(item => ({
+          itemId: item.item_id,
+          quantity: item.ordered_quantity,
+          tempId: Math.random(),
+          item_name: item.item_name,
+          size: item.size,
+          unit_weight: item.unit_weight
+        }))
+      });
+    } catch (err) {
+      console.error("Failed to fetch order details", err);
+      showToast("Failed to load order details", "error");
+    }
+  };
+
+  const handleEditItemChange = (index, field, value) => {
+    const updated = [...editForm.items];
+    updated[index][field] = value;
+    setEditForm({ ...editForm, items: updated });
+  };
+
+  const addEditItemRow = () => {
+    setEditForm({
+      ...editForm,
+      items: [...editForm.items, { itemId: '', quantity: '', tempId: Math.random() }]
+    });
+  };
+
+  const removeEditItemRow = (index) => {
+    const updated = editForm.items.filter((_, i) => i !== index);
+    setEditForm({ ...editForm, items: updated });
+  };
+
+  const calculateEditRowWeight = (itemId, qty) => {
+    if (!itemId || !qty) return '-';
+    const item = availableItems.find(i => String(i.id) === String(itemId));
+    if (!item || !item.weight) return '-';
+    
+    const unitWeight = parseFloat(item.weight) || 0;
+    const quantity = parseFloat(qty) || 0;
+    const total = unitWeight * quantity;
+    
+    return total > 0 ? total.toFixed(2) : '-';
+  };
+
+  const handleEditOrderSave = async (e) => {
+    e.preventDefault();
+    if (!editOrder) return;
+
+    setIsEditSaving(true);
+    try {
+      await api.put(`/api/orders/${editOrder.id}`, {
+        party_name: editForm.partyName,
+        order_date: editForm.orderDate,
+        reference: editForm.reference,
+        contact_no: editForm.contactNo,
+        remark: editForm.remark,
+        items: editForm.items.map(item => ({
+          itemId: item.itemId,
+          ordered_quantity: parseInt(item.quantity) || 0
+        }))
+      });
+      showToast("Order updated successfully", "success");
+      setEditOrder(null);
+      fetchOrders();
+    } catch (err) {
+      console.error("Edit order error:", err.response?.status, err.response?.data);
+      if (err.response?.status === 401) {
+        console.warn("Session expired during edit order");
+      } else if (err.response?.status === 403) {
+        showToast("You don't have permission to edit this order", "error");
+      } else {
+        showToast(err.response?.data?.error || "Failed to update order", "error");
+      }
+    } finally {
+      setIsEditSaving(false);
+    }
+  };
+
+  // --- EDIT DISPATCH HANDLERS (INLINE) ---
+  const handleEditDispatch = (e, entry) => {
+    e.stopPropagation();
+    const uniqueKey = `${entry.dispatch_date}_${entry.challan_no}`;
+    setEditingDispatchRow({ dispatch_date: entry.dispatch_date, challan_no: entry.challan_no, original_challan_no: entry.challan_no, uniqueKey });
+    setEditDispatchError('');
+    // Create form from dispatch entries and store original quantities
+    const formData = {};
+    const originalData = {};
+    Object.keys(entry.entries).forEach(key => {
+      const log = entry.entries[key];
+      const qty = log ? log.quantity_sent : '';
+      formData[key] = qty;
+      originalData[key] = qty; // Store original for validation
+    });
+    setEditingDispatchData(formData);
+    setEditingDispatchOriginalData(originalData);
+  };
+
+  const handleEditDispatchChange = (key, value) => {
+    const updatedData = { ...editingDispatchData, [key]: value };
+    setEditingDispatchData(updatedData);
+    
+    // Real-time stock validation with net change logic
+    const newQty = parseInt(value) || 0;
+    const oldQty = parseInt(editingDispatchOriginalData[key]) || 0;
+    const netChange = newQty - oldQty; // Negative = stock returned, Positive = stock deducted
+    
+    const orderItem = dispatchForm.find(item =>
+      (item.item_name + '|' + (item.size || '')) === key
+    );
+    
+    // Only show error if net deduction exceeds available stock
+    if (orderItem && netChange > 0 && netChange > orderItem.available_stock) {
+      setEditDispatchError(`${key}: Net change (${netChange}) exceeds available stock (${orderItem.available_stock})`);
+    } else {
+      setEditDispatchError('');
+    }
+  };
+
+  const handleEditDispatchSave = async (e) => {
+    e.preventDefault();
+    if (!editingDispatchRow || !selectedOrder) return;
+
+    // Validate stock before saving with net change logic
+    setEditDispatchError('');
+    for (const key of Object.keys(editingDispatchData)) {
+      const newQty = parseInt(editingDispatchData[key]) || 0;
+      const oldQty = parseInt(editingDispatchOriginalData[key]) || 0;
+      const netChange = newQty - oldQty; // Negative = stock returned, Positive = stock deducted
+      
+      const orderItem = dispatchForm.find(item =>
+        (item.item_name + '|' + (item.size || '')) === key
+      );
+      
+      // Only show error if net deduction exceeds available stock
+      if (orderItem && netChange > 0 && netChange > orderItem.available_stock) {
+        setEditDispatchError(`${key}: Net change (${netChange}) exceeds available stock (${orderItem.available_stock})`);
+        return;
+      }
+    }
+
+    setIsEditDispatchSaving(true);
+    try {
+      // Prepare items array for the update
+      const items = Object.keys(editingDispatchData).map(key => {
+        return {
+          item_name: itemMeta[key]?.name || '',
+          size: itemMeta[key]?.size || '',
+          quantity_sent: parseInt(editingDispatchData[key]) || 0
+        };
+      });
+
+      await api.put(`/api/orders/${selectedOrder.id}/dispatch/${editingDispatchRow.original_challan_no}`, {
+        dispatch_date: editingDispatchRow.dispatch_date,
+        challan_no: editingDispatchRow.challan_no,
+        items
+      });
+
+      showToast("Dispatch updated successfully", "success");
+      setEditingDispatchRow(null);
+      setEditingDispatchData({});
+      setEditingDispatchOriginalData({});
+      setEditDispatchError('');
+      
+      // Refresh order details
+      const res = await api.get(`/api/orders/${selectedOrder.id}`);
+      const updatedOrder = res.data.data;
+      setSelectedOrder(updatedOrder);
+      setDispatchHistory(updatedOrder.history || []);
+      
+      // Update dispatchForm with new available_stock values
+      if (updatedOrder.items) {
+        setDispatchForm(updatedOrder.items.map(item => ({
+          id: item.id, 
+          item_name: item.item_name,
+          size: item.size,
+          unit_weight: item.unit_weight, 
+          total_weight: item.total_weight, 
+          ordered_quantity: item.ordered_quantity,
+          prev_dispatched: item.dispatched_quantity || 0,
+          available_stock: item.current_stock || 0,
+          current_dispatch: '' 
+        })));
+      }
+    } catch (err) {
+      console.error("Edit dispatch save error:", err.response?.status, err.response?.data);
+      if (err.response?.status === 401) {
+        console.warn("Session expired during edit dispatch save");
+      } else if (err.response?.status === 403) {
+        showToast("You don't have permission to update dispatch", "error");
+      } else {
+        showToast(err.response?.data?.error || "Failed to update dispatch", "error");
+      }
+    } finally {
+      setIsEditDispatchSaving(false);
+    }
+  };
+
+  const handleCancelEditDispatch = () => {
+    setEditingDispatchRow(null);
+    setEditingDispatchData({});
+    setEditingDispatchOriginalData({});
+    setEditDispatchError('');
+  };
+
+  const handleDeleteOrder = async (orderId) => {
+    if (!deleteTarget || deleteTarget.type !== 'order') return;
+    
+    try {
+      const response = await api.delete(`/api/orders/${orderId}`);
+      showToast("Order deleted successfully", "success");
+      setShowDeleteConfirm(false);
+      setDeleteTarget(null);
+      fetchOrders();
+    } catch (err) {
+      console.error("Delete order error:", err.response?.status, err.response?.data);
+      if (err.response?.status === 401) {
+        console.warn("Session expired during delete order");
+      } else if (err.response?.status === 403) {
+        showToast("You don't have permission to delete this order", "error");
+      } else {
+        showToast(err.response?.data?.error || "Failed to delete order", "error");
+      }
+    }
+  };
+
+  const initiateDeleteOrder = (e, orderId) => {
+    e.stopPropagation();
+    setDeleteTarget({ type: 'order', id: orderId });
+    setShowDeleteConfirm(true);
+  };
+
+  const initiateDeleteDispatch = (e, challanNo) => {
+    e.stopPropagation();
+    setDeleteTarget({ type: 'dispatch', id: challanNo, orderId: selectedOrder.id });
+    setShowDeleteConfirm(true);
+  };
+
+  const handleDeleteDispatchRecord = async (dispatchId, orderId) => {
+    if (!deleteTarget || deleteTarget.type !== 'dispatch') return;
+    
+    try {
+      const response = await api.delete(`/api/orders/${orderId}/dispatch/${dispatchId}`);
+      showToast("Dispatch record deleted successfully", "success");
+      setShowDeleteConfirm(false);
+      setDeleteTarget(null);
+      
+      // Refresh the order details
+      const res = await api.get(`/api/orders/${orderId}`);
+      const fullOrder = res.data.data;
+      setSelectedOrder(fullOrder);
+      setDispatchHistory(fullOrder.history || []);
+      
+      if (fullOrder.items) {
+        setDispatchForm(fullOrder.items.map(item => ({
+          id: item.id, 
+          item_name: item.item_name,
+          size: item.size,
+          unit_weight: item.unit_weight, 
+          total_weight: item.total_weight, 
+          ordered_quantity: item.ordered_quantity,
+          prev_dispatched: item.dispatched_quantity || 0,
+          available_stock: item.current_stock || 0,
+          current_dispatch: '' 
+        })));
+      }
+    } catch (err) {
+      console.error("Delete dispatch error:", err.response?.status, err.response?.data);
+      if (err.response?.status === 401) {
+        console.warn("Session expired during delete dispatch");
+      } else if (err.response?.status === 403) {
+        showToast("You don't have permission to delete this dispatch record", "error");
+      } else {
+        showToast(err.response?.data?.error || "Failed to delete dispatch record", "error");
+      }
     }
   };
 
@@ -801,6 +1430,7 @@ const generateExcel = async (type) => {
         .btn-primary:hover { background: var(--primary-hover); }
         .btn-primary:disabled { background: #cbd5e1; color: #64748b; cursor: not-allowed; opacity: 1; }
         .btn-secondary { background: #f1f5f9; color: var(--text-muted); border: 1px solid var(--border); }
+        .btn-secondary:hover { background: #e2e8f0; color: var(--text-main); }
         .btn-outline { background: white; color: var(--text-main); border: 1px solid var(--border); font-size: 13px; padding: 6px 12px; }
         .btn-outline:hover { background: #f8fafc; border-color: #cbd5e1; }
         
@@ -864,13 +1494,14 @@ const generateExcel = async (type) => {
                   <th>Order Date</th>
                   <th>Status</th>
                   <th>Contact</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan="5" style={{textAlign:'center', padding: '40px'}}>Loading...</td></tr>
+                  <tr><td colSpan="6" style={{textAlign:'center', padding: '40px'}}>Loading...</td></tr>
                 ) : filteredData.length === 0 ? (
-                  <tr><td colSpan="5" style={{textAlign:'center', padding: '40px', color: '#94a3b8'}}>No confirmed orders found.</td></tr>
+                  <tr><td colSpan="6" style={{textAlign:'center', padding: '40px', color: '#94a3b8'}}>No confirmed orders found.</td></tr>
                 ) : (
                   filteredData.map((order, index) => {
                     const displayId = sortOrder === 'asc' 
@@ -892,6 +1523,52 @@ const generateExcel = async (type) => {
                             </span>
                           </td>
                           <td>{order.contact_no || '-'}</td>
+                          <td onClick={(e) => e.stopPropagation()} style={{display: 'flex', gap: '8px', justifyContent: 'center'}}>
+                            <button 
+                              className="icon-btn"
+                              onClick={(e) => handleEditOrder(e, order)}
+                              title="Edit"
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                padding: '6px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                borderRadius: '6px',
+                                transition: 'background 0.2s',
+                                width: '32px',
+                                height: '32px'
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#eff6ff'}
+                              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                            >
+                              <Icons.Pencil />
+                            </button>
+                            <button 
+                              className="icon-btn danger"
+                              onClick={(e) => initiateDeleteOrder(e, order.id)}
+                              title="Delete"
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                padding: '6px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                borderRadius: '6px',
+                                transition: 'background 0.2s',
+                                width: '32px',
+                                height: '32px'
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fee2e2'}
+                              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                            >
+                              <Icons.Trash />
+                            </button>
+                          </td>
                         </tr>
                     );
                   })
@@ -1024,24 +1701,47 @@ const generateExcel = async (type) => {
                   {/* 4. Total Weight Row */}
                   <tr>
                     <th style={{background:'#f8fafc', textAlign:'center'}}>Total Weight</th>
-                    {dispatchForm.map((item, idx) => (
-                      <td key={item.id || idx} style={{fontWeight:600, color:'#475569', textAlign:'center'}}>
-                        {formatWeight(item.total_weight || (item.unit_weight * item.ordered_quantity))}
-                      </td>
-                    ))}
+                    {dispatchForm.map((item, idx) => {
+                      let weight = item.total_weight;
+                      if (!weight && item.unit_weight) {
+                        weight = item.unit_weight * item.ordered_quantity;
+                      }
+                      return (
+                        <td key={item.id || idx} style={{fontWeight:600, color:'#475569', textAlign:'center'}}>
+                          {formatWeight(weight)}
+                        </td>
+                      );
+                    })}
                   </tr>
                   {/* 5. Prev. Sent Row */}
                   <tr>
                     <th style={{background:'#f8fafc', color:'#64748b', textAlign:'center'}}>Prev. Sent</th>
-                    {dispatchForm.map((item, idx) => (
-                      <td key={item.id || idx} style={{color:'#64748b', background:'#f8fafc', textAlign:'center'}}>{item.prev_dispatched}</td>
-                    ))}
+                    {dispatchForm.map((item, idx) => {
+                      // Calculate total dispatched for this item from history
+                      const itemKey = item.item_name + '|' + (item.size || '');
+                      const totalDispatched = dispatchHistory.reduce((sum, log) => {
+                        const logKey = log.item_name + '|' + (log.size || '');
+                        return logKey === itemKey ? sum + (log.quantity_sent || 0) : sum;
+                      }, 0);
+                      
+                      return (
+                        <td key={item.id || idx} style={{color:'#64748b', background:'#f8fafc', textAlign:'center', fontWeight: 600}}>
+                          {totalDispatched}
+                        </td>
+                      );
+                    })}
                   </tr>
                   {/* 6. Balance Row */}
                   <tr>
                     <th style={{background:'#f8fafc', color:'#f59e0b', textAlign:'center', fontWeight:'bold'}}>Balance</th>
                     {dispatchForm.map((item, idx) => {
-                      const balance = item.ordered_quantity - item.prev_dispatched;
+                      // Calculate total dispatched for this item from history
+                      const itemKey = item.item_name + '|' + (item.size || '');
+                      const totalDispatched = dispatchHistory.reduce((sum, log) => {
+                        const logKey = log.item_name + '|' + (log.size || '');
+                        return logKey === itemKey ? sum + (log.quantity_sent || 0) : sum;
+                      }, 0);
+                      const balance = item.ordered_quantity - totalDispatched;
                       return <td key={item.id || idx} style={{fontWeight:'bold', color:'#92400e', background:'#fef3c7', textAlign:'center'}}>{balance}</td>;
                     })}
                   </tr>
@@ -1049,7 +1749,13 @@ const generateExcel = async (type) => {
                   <tr>
                     <th style={{background:'#f8fafc', color:'#f59e0b', textAlign:'center', fontWeight:'bold'}}>Balance Weight</th>
                     {dispatchForm.map((item, idx) => {
-                      const balance = item.ordered_quantity - item.prev_dispatched;
+                      // Calculate total dispatched for this item from history
+                      const itemKey = item.item_name + '|' + (item.size || '');
+                      const totalDispatched = dispatchHistory.reduce((sum, log) => {
+                        const logKey = log.item_name + '|' + (log.size || '');
+                        return logKey === itemKey ? sum + (log.quantity_sent || 0) : sum;
+                      }, 0);
+                      const balance = item.ordered_quantity - totalDispatched;
                       const balanceWeight = balance * (parseFloat(item.unit_weight) || 0);
                       return <td key={item.id || idx} style={{fontWeight:'bold', color:'#92400e', background:'#fef3c7', textAlign:'center'}}>{formatWeight(balanceWeight)}</td>;
                     })}
@@ -1163,32 +1869,33 @@ const generateExcel = async (type) => {
                   }
                 });
                 totalRow[key] = sum;
-                // PENDING = exactly the balance from dispatchForm (ordered_quantity - prev_dispatched)
+                // PENDING = ordered_quantity - total dispatched (from history)
                 const matchingItem = dispatchForm.find(item => 
                   (item.item_name + '|' + (item.size || '')) === key
                 );
-                pendingRow[key] = matchingItem ? (matchingItem.ordered_quantity - matchingItem.prev_dispatched) : 0;
+                pendingRow[key] = matchingItem ? (matchingItem.ordered_quantity - totalRow[key]) : 0;
                 totalKgRow[key] = sumKg;
                 columnWeightRow[key] = sumKg;
               });
               return (
                 <div style={{marginTop: 30, borderTop: '1px solid #e2e8f0', paddingTop: 20}}>
-                  <h4 style={{fontSize: 14, fontWeight: 700, marginBottom: 12, color: '#334155'}}>Dispatch History</h4>
+                  <h4 style={{fontSize: 16, fontWeight: 700, marginBottom: 16, color: '#334155'}}>Dispatch History</h4>
                   <div style={{overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: 8}}>
-                    <table className="items-table history-table" style={{width: '100%', minWidth: 0, margin: 0, tableLayout: 'auto'}}>
+                    <table className="items-table history-table" style={{width: '100%', minWidth: 0, margin: 0, tableLayout: 'auto', fontSize: '15px'}}>
                       <thead>
                         <tr>
-                          <th rowSpan={2} style={{background:'#f8fafc', textAlign:'center'}}>Date</th>
-                          <th rowSpan={2} style={{background:'#f8fafc', textAlign:'center'}}>Challan No</th>
+                          <th rowSpan={2} style={{background:'#f8fafc', textAlign:'center', padding: '12px 8px', fontSize: '14px', fontWeight: 700}}>Date</th>
+                          <th rowSpan={2} style={{background:'#f8fafc', textAlign:'center', padding: '12px 8px', fontSize: '14px', fontWeight: 700}}>Challan No</th>
                           {itemKeys.map(key => (
-                            <th key={key} colSpan={1} style={{background:'#f8fafc', textAlign:'center'}}>{itemMeta[key].name}</th>
+                            <th key={key} colSpan={1} style={{background:'#f8fafc', textAlign:'center', padding: '12px 8px', fontSize: '14px', fontWeight: 700}}>{itemMeta[key].name}</th>
                           ))}
-                          <th rowSpan={2} style={{background:'#f8fafc', textAlign:'center'}}>TOTAL</th>
-                          <th rowSpan={2} style={{background:'#f8fafc', textAlign:'center'}}>TOTAL (Kg.)</th>
+                          <th rowSpan={2} style={{background:'#f8fafc', textAlign:'center', padding: '12px 8px', fontSize: '14px', fontWeight: 700}}>TOTAL</th>
+                          <th rowSpan={2} style={{background:'#f8fafc', textAlign:'center', padding: '12px 8px', fontSize: '14px', fontWeight: 700}}>TOTAL (Kg.)</th>
+                          <th rowSpan={2} style={{background:'#f8fafc', textAlign:'center', padding: '12px 8px', fontSize: '14px', fontWeight: 700}}>Actions</th>
                         </tr>
                         <tr>
                           {itemKeys.map(key => (
-                            <th key={key+':size'} style={{background:'#f8fafc', textAlign:'center'}}>{itemMeta[key].size}</th>
+                            <th key={key+':size'} style={{background:'#f8fafc', textAlign:'center', padding: '12px 8px', fontSize: '13px'}}>{itemMeta[key].size}</th>
                           ))}
                         </tr>
                       </thead>
@@ -1202,76 +1909,210 @@ const generateExcel = async (type) => {
                             const log = entry.entries[key];
                             return sum + (log ? log.quantity_sent : 0);
                           }, 0);
+                          
+                          const uniqueKey = `${entry.dispatch_date}_${entry.challan_no}`;
+                          const isEditing = editingDispatchRow?.uniqueKey === uniqueKey;
+                          
                           return (
-                            <tr key={`${entry.dispatch_date}_${entry.challan_no}_${idx}`}>
-                              <td style={{fontWeight:700, textAlign:'center', padding: '8px 12px'}}>
-                                {formatDate(entry.dispatch_date)}
+                            <tr key={uniqueKey}>
+                              <td style={{fontWeight:700, textAlign:'center', padding: '12px 8px', fontSize: '15px'}}>
+                                {isEditing ? (
+                                  <input 
+                                    type="date" 
+                                    value={editingDispatchRow.dispatch_date ? new Date(editingDispatchRow.dispatch_date).toISOString().split('T')[0] : ''}
+                                    onChange={(e) => setEditingDispatchRow({ ...editingDispatchRow, dispatch_date: e.target.value })}
+                                    className="form-input"
+                                    style={{width: '130px', padding: '6px', fontSize: '14px'}}
+                                  />
+                                ) : (
+                                  formatDate(entry.dispatch_date)
+                                )}
                               </td>
-                              <td style={{fontWeight:600, textAlign:'center', padding: '8px 12px', color:'#059669'}}>
-                                {entry.challan_no ? ` ${entry.challan_no}` : '-'}
+                              <td style={{fontWeight:600, textAlign:'center', padding: '12px 8px', color:'#059669', fontSize: '15px'}}>
+                                {isEditing ? (
+                                  <input 
+                                    type="text" 
+                                    value={editingDispatchRow.challan_no || ''}
+                                    onChange={(e) => setEditingDispatchRow({ ...editingDispatchRow, challan_no: e.target.value })}
+                                    className="form-input"
+                                    style={{width: '90px', padding: '6px', fontSize: '14px'}}
+                                  />
+                                ) : (
+                                  entry.challan_no ? ` ${entry.challan_no}` : '-'
+                                )}
                               </td>
                               {itemKeys.map(key => {
                                 const log = entry.entries[key];
+                                const orderItem = dispatchForm.find(item => (item.item_name + '|' + (item.size || '')) === key);
+                                const newQty = parseInt(editingDispatchData[key]) || 0;
+                                const oldQty = parseInt(editingDispatchOriginalData[key]) || 0;
+                                const netChange = newQty - oldQty;
+                                const hasError = isEditing && orderItem && netChange > 0 && netChange > orderItem.available_stock;
+                                
                                 return (
-                                  <td key={`${entry.dispatch_date}_${entry.challan_no}_${key}`} style={{textAlign:'center', fontWeight:600, color:'#059669'}}>
-                                    {log ? log.quantity_sent : ''}
+                                  <td key={`${entry.dispatch_date}_${entry.challan_no}_${key}`} style={{textAlign:'center', fontWeight:600, color:'#059669', padding: '12px 8px', fontSize: '15px'}}>
+                                    {isEditing ? (
+                                      <div style={{display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px'}}>
+                                        <input 
+                                          type="number" 
+                                          value={editingDispatchData[key] || ''}
+                                          onChange={(e) => handleEditDispatchChange(key, e.target.value)}
+                                          className="form-input"
+                                          style={{
+                                            width: '70px', 
+                                            padding: '6px', 
+                                            fontSize: '14px', 
+                                            textAlign: 'center',
+                                            borderColor: hasError ? '#ef4444' : '#e2e8f0',
+                                            backgroundColor: hasError ? '#fef2f2' : 'white',
+                                            color: hasError ? '#b91c1c' : '#334155'
+                                          }}
+                                          min="0"
+                                        />
+                                        {hasError && (
+                                          <span style={{fontSize: '11px', color: '#ef4444', fontWeight: 600, whiteSpace: 'nowrap'}}>
+                                            Stock: {orderItem.available_stock}
+                                          </span>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <span>{log ? log.quantity_sent : ''}</span>
+                                    )}
                                   </td>
                                 );
                               })}
-                              <td style={{textAlign:'center', fontWeight:600}}>{dateTotalQty}</td>
-                              <td style={{textAlign:'center', fontWeight:600}}>{formatWeight(dateTotal)}</td>
+                              <td style={{textAlign:'center', fontWeight:600, padding: '12px 8px', fontSize: '15px'}}>{dateTotalQty}</td>
+                              <td style={{textAlign:'center', fontWeight:600, padding: '12px 8px', fontSize: '15px'}}>{formatWeight(dateTotal)}</td>
+                              <td style={{textAlign:'center', padding: '12px 8px', alignItems: 'center', minHeight: '44px'}}>
+                                <div style={{display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center'}}>
+                                {isEditing ? (
+                                  <>
+                                    <button 
+                                      onClick={handleEditDispatchSave}
+                                      disabled={isEditDispatchSaving || editDispatchError}
+                                      className="btn btn-primary"
+                                      style={{fontSize: '12px', padding: '6px 12px', opacity: (isEditDispatchSaving || editDispatchError) ? 0.5 : 1, cursor: (isEditDispatchSaving || editDispatchError) ? 'not-allowed' : 'pointer', flexShrink: 0}}
+                                      title={editDispatchError ? "Fix errors before saving" : "Save"}
+                                    >
+                                      Save
+                                    </button>
+                                    <button 
+                                      onClick={handleCancelEditDispatch}
+                                      disabled={isEditDispatchSaving}
+                                      className="btn btn-secondary"
+                                      style={{fontSize: '11px', padding: '4px 8px', flexShrink: 0}}
+                                      title="Cancel"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <button 
+                                      className="icon-btn"
+                                      onClick={(e) => handleEditDispatch(e, entry)}
+                                      title="Edit"
+                                      style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        padding: '6px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        borderRadius: '6px',
+                                        transition: 'background 0.2s',
+                                        width: '32px',
+                                        height: '32px',
+                                        flexShrink: 0
+                                      }}
+                                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#eff6ff'}
+                                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                                    >
+                                      <Icons.Pencil />
+                                    </button>
+                                    <button 
+                                      className="icon-btn danger"
+                                      onClick={(e) => initiateDeleteDispatch(e, entry.challan_no)}
+                                      title="Delete"
+                                      style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        padding: '6px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        borderRadius: '6px',
+                                        transition: 'background 0.2s',
+                                        width: '32px',
+                                        height: '32px',
+                                        flexShrink: 0
+                                      }}
+                                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fee2e2'}
+                                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                                    >
+                                      <Icons.Trash />
+                                    </button>
+                                  </>
+                                )}
+                                </div>
+                              </td>
                             </tr>
                           );
                         })}
                         {/* TOTAL row */}
                         <tr>
-                          <td style={{fontWeight:700, background:'#f8fafc', textAlign:'center'}}>TOTAL</td>
-                          <td style={{fontWeight:700, background:'#f8fafc', textAlign:'center'}}>-</td>
+                          <td style={{fontWeight:700, background:'#f8fafc', textAlign:'center', padding: '12px 8px', fontSize: '15px'}}>TOTAL</td>
+                          <td style={{fontWeight:700, background:'#f8fafc', textAlign:'center', padding: '12px 8px', fontSize: '15px'}}>-</td>
                           {itemKeys.map(key => (
-                            <td key={'total'+key} style={{textAlign:'center', fontWeight:700}}>{totalRow[key]}</td>
+                            <td key={'total'+key} style={{textAlign:'center', fontWeight:700, padding: '12px 8px', fontSize: '15px'}}>{totalRow[key]}</td>
                           ))}
-                          <td style={{textAlign:'center', fontWeight:700, background:'#f8fafc'}}>
+                          <td style={{textAlign:'center', fontWeight:700, background:'#f8fafc', padding: '12px 8px', fontSize: '15px'}}>
                             {itemKeys.reduce((sum, key) => sum + totalRow[key], 0)}
                           </td>
-                          <td style={{textAlign:'center', fontWeight:700, background:'#f8fafc'}}>
+                          <td style={{textAlign:'center', fontWeight:700, background:'#f8fafc', padding: '12px 8px', fontSize: '15px'}}>
                             {formatWeight(itemKeys.reduce((sum, key) => sum + columnWeightRow[key], 0))}
                           </td>
+                          <td style={{background:'#f8fafc'}}></td>
                         </tr>
                         {/* TOTAL(KG.) row - shows weight per column */}
                         <tr>
-                          <td style={{fontWeight:700, background:'#f8fafc', textAlign:'center'}}>TOTAL(KG.)</td>
-                          <td style={{fontWeight:700, background:'#f8fafc', textAlign:'center'}}>-</td>
+                          <td style={{fontWeight:700, background:'#f8fafc', textAlign:'center', padding: '12px 8px', fontSize: '15px'}}>TOTAL(KG.)</td>
+                          <td style={{fontWeight:700, background:'#f8fafc', textAlign:'center', padding: '12px 8px', fontSize: '15px'}}>-</td>
                           {itemKeys.map(key => (
-                            <td key={'totalkg'+key} style={{textAlign:'center', fontWeight:700, color:'#475569'}}>
+                            <td key={'totalkg'+key} style={{textAlign:'center', fontWeight:700, color:'#475569', padding: '12px 8px', fontSize: '15px'}}>
                               {formatWeight(columnWeightRow[key])}
                             </td>
                           ))}
-                          <td style={{textAlign:'center', fontWeight:700, background:'#f8fafc'}}>-</td>
-                          <td style={{textAlign:'center', fontWeight:700, background:'#f8fafc'}}>
+                          <td style={{textAlign:'center', fontWeight:700, background:'#f8fafc', padding: '12px 8px', fontSize: '15px'}}>-</td>
+                          <td style={{textAlign:'center', fontWeight:700, background:'#f8fafc', padding: '12px 8px', fontSize: '15px'}}>
                             {formatWeight(itemKeys.reduce((sum, key) => sum + columnWeightRow[key], 0))}
                           </td>
+                          <td style={{background:'#f8fafc'}}></td>
                         </tr>
-                        {/* PENDING row (for demo, same as total) */}
+                        {/* PENDING row - shows what's left to dispatch */}
                         <tr>
-                          <td style={{fontWeight:700, background:'#e0f2f1', color:'#0d9488', textAlign:'center'}}>PENDING</td>
-                          <td style={{fontWeight:700, background:'#e0f2f1', color:'#0d9488', textAlign:'center'}}>-</td>
+                          <td style={{fontWeight:700, background:'#e0f2f1', color:'#0d9488', textAlign:'center', padding: '12px 8px', fontSize: '15px'}}>PENDING</td>
+                          <td style={{fontWeight:700, background:'#e0f2f1', color:'#0d9488', textAlign:'center', padding: '12px 8px', fontSize: '15px'}}>-</td>
                           {itemKeys.map(key => (
-                            <td key={'pending'+key} style={{textAlign:'center', fontWeight:700, background:'#e0f2f1', color:'#0d9488'}}>{pendingRow[key]}</td>
+                            <td key={'pending'+key} style={{textAlign:'center', fontWeight:700, background:'#e0f2f1', color:'#0d9488', padding: '12px 8px', fontSize: '15px'}}>{pendingRow[key]}</td>
                           ))}
-                          <td style={{textAlign:'center', fontWeight:700, background:'#e0f2f1', color:'#0d9488'}}>
+                          <td style={{textAlign:'center', fontWeight:700, background:'#e0f2f1', color:'#0d9488', padding: '12px 8px', fontSize: '15px'}}>
                             {itemKeys.reduce((sum, key) => sum + pendingRow[key], 0)}
                           </td>
-                          <td style={{textAlign:'center', fontWeight:700, background:'#e0f2f1', color:'#0d9488'}}>
+                          <td style={{textAlign:'center', fontWeight:700, background:'#e0f2f1', color:'#0d9488', padding: '12px 8px', fontSize: '15px'}}>
                             {formatWeight(itemKeys.reduce((sum, key) => {
                               const matchingItem = dispatchForm.find(item => 
                                 (item.item_name + '|' + (item.size || '')) === key
                               );
-                              const balance = matchingItem ? (matchingItem.ordered_quantity - matchingItem.prev_dispatched) : 0;
+                              const balance = pendingRow[key] || 0;
                               const pendingWeight = matchingItem && matchingItem.unit_weight ? 
                                 (balance * parseFloat(matchingItem.unit_weight)) : 0;
                               return sum + pendingWeight;
                             }, 0))}
                           </td>
+                          <td style={{background:'#e0f2f1'}}></td>
                         </tr>
                       </tbody>
                     </table>
@@ -1289,13 +2130,272 @@ const generateExcel = async (type) => {
           {toast.message}
         </div>
       )}
+
+      {/* --- EDIT ORDER MODAL --- */}
+      {editOrder && (
+        <div className="modal-overlay" onClick={() => !isEditSaving && setEditOrder(null)}>
+          <div className="large-modal" onClick={e => e.stopPropagation()} style={{maxHeight: '80vh', overflowY: 'auto'}}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems: 'center', marginBottom: 20}}>
+                <h2 style={{fontSize: 20, fontWeight: 800, margin:0}}>Edit Order #{editOrder.id}</h2>
+                <button onClick={() => setEditOrder(null)} className="close-btn" style={{background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, transition: 'background 0.2s', height: 32, width: 32}} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f1f5f9'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}><Icons.Close /></button>
+            </div>
+
+            <form onSubmit={handleEditOrderSave}>
+                <div className="edit-grid" style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px'}}>
+                    <div>
+                        <label className="form-label" style={{fontSize: '13px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px', display: 'block'}}>Party Name</label>
+                        <input 
+                          className="form-input" 
+                          style={{padding: '10px', border: '1px solid #e2e8f0', borderRadius: '6px', width: '100%', fontSize: '14px'}}
+                          value={editForm.partyName} 
+                          onChange={e => setEditForm({...editForm, partyName: e.target.value})} 
+                          required 
+                        />
+                    </div>
+                    <div>
+                        <label className="form-label" style={{fontSize: '13px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px', display: 'block'}}>Order Date</label>
+                        <input 
+                          type="date" 
+                          className="form-input" 
+                          style={{padding: '10px', border: '1px solid #e2e8f0', borderRadius: '6px', width: '100%', fontSize: '14px'}}
+                          value={editForm.orderDate} 
+                          onChange={e => setEditForm({...editForm, orderDate: e.target.value})} 
+                        />
+                    </div>
+                    <div>
+                        <label className="form-label" style={{fontSize: '13px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px', display: 'block'}}>Contact No</label>
+                        <input 
+                          className="form-input" 
+                          style={{padding: '10px', border: '1px solid #e2e8f0', borderRadius: '6px', width: '100%', fontSize: '14px'}}
+                          value={editForm.contactNo} 
+                          onChange={e => setEditForm({...editForm, contactNo: e.target.value})} 
+                        />
+                    </div>
+                    <div>
+                        <label className="form-label" style={{fontSize: '13px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px', display: 'block'}}>Reference</label>
+                        <input 
+                          className="form-input" 
+                          style={{padding: '10px', border: '1px solid #e2e8f0', borderRadius: '6px', width: '100%', fontSize: '14px'}}
+                          value={editForm.reference} 
+                          onChange={e => setEditForm({...editForm, reference: e.target.value})} 
+                        />
+                    </div>
+                </div>
+                
+                <div style={{marginBottom: 20}}>
+                    <label className="form-label" style={{fontSize: '13px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px', display: 'block'}}>Remark</label>
+                    <input 
+                      className="form-input" 
+                      style={{padding: '10px', border: '1px solid #e2e8f0', borderRadius: '6px', width: '100%', fontSize: '14px'}}
+                      value={editForm.remark} 
+                      onChange={e => setEditForm({...editForm, remark: e.target.value})} 
+                    />
+                </div>
+
+                <hr style={{borderTop:'1px solid #e2e8f0', margin:'20px 0'}} />
+                
+                {/* --- ITEMS SECTION --- */}
+                <div style={{marginBottom: 20}}>
+                    <h4 style={{fontSize: '14px', fontWeight: '700', marginBottom: '12px', color: '#334155'}}>Order Items</h4>
+                    
+                    {/* --- HEADER FOR ITEMS IN EDIT --- */}
+                    <div style={{display: 'flex', gap: '10px', marginBottom: '10px', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase'}}>
+                        <div style={{flex: 3}}>Item Name</div>
+                        <div style={{flex: 1}}>Qty</div>
+                        <div style={{flex: 1}}>Total Weight (kg)</div>
+                        <div style={{width: '36px'}}></div>
+                    </div>
+
+                    {editForm.items.map((row, index) => (
+                        <div key={row.tempId || index} style={{display: 'flex', gap: '10px', marginBottom: '10px', alignItems: 'center'}}>
+                            {/* Item Dropdown */}
+                            <div style={{flex: 3}}>
+                                <SearchableSelect 
+                                    options={availableItems}
+                                    value={row.itemId}
+                                    onChange={(val) => handleEditItemChange(index, 'itemId', val)}
+                                    placeholder="Search item..."
+                                    labelKey="displayName"
+                                    valueKey="id"
+                                />
+                            </div>
+
+                            {/* Quantity */}
+                            <div style={{flex: 1}}>
+                                <input 
+                                    type="number" 
+                                    className="form-input"
+                                    placeholder="Qty" 
+                                    value={row.quantity} 
+                                    onChange={(e) => handleEditItemChange(index, 'quantity', e.target.value)} 
+                                />
+                            </div>
+
+                            {/* Weight (Read Only) */}
+                            <div style={{flex: 1}}>
+                                <input 
+                                    type="text" 
+                                    className="form-input"
+                                    style={{backgroundColor: '#f8fafc', color: '#64748b', cursor: 'not-allowed'}}
+                                    value={calculateEditRowWeight(row.itemId, row.quantity)} 
+                                    readOnly
+                                />
+                            </div>
+
+                            {/* Remove Button */}
+                            <button 
+                                type="button" 
+                                onClick={() => removeEditItemRow(index)} 
+                                style={{
+                                    background:'#fee2e2', 
+                                    color:'#ef4444', 
+                                    border:'none', 
+                                    borderRadius: 4, 
+                                    width: 36, 
+                                    height: 36, 
+                                    cursor:'pointer',
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    justifyContent: 'center', 
+                                    padding: 0,
+                                    transition: 'all 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fecaca'}
+                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fee2e2'}
+                            >
+                              <Icons.X />
+                            </button>
+                        </div>
+                    ))}
+                    
+                    <button 
+                      type="button" 
+                      onClick={addEditItemRow} 
+                      className="btn btn-secondary"
+                      style={{fontSize: 12, padding: '4px 10px', marginBottom: '20px'}}
+                    >
+                      + Add Item
+                    </button>
+                </div>
+
+                <div style={{display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '24px'}}>
+                    <button 
+                      type="button"
+                      onClick={() => setEditOrder(null)}
+                      className="btn btn-secondary"
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      type="submit"
+                      disabled={isEditSaving}
+                      className="btn btn-primary"
+                      style={{opacity: isEditSaving ? 0.7 : 1, cursor: isEditSaving ? 'not-allowed' : 'pointer'}}
+                    >
+                      {isEditSaving ? 'Saving...' : 'Save Changes'}
+                    </button>
+                </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT DISPATCH ERROR MESSAGE */}
+      {editingDispatchRow && editDispatchError && (
+        <div style={{
+          position: 'fixed',
+          top: '20px',
+          right: '20px',
+          background: '#fee2e2',
+          border: '1px solid #fecaca',
+          borderRadius: '8px',
+          padding: '12px 16px',
+          color: '#991b1b',
+          fontSize: '14px',
+          zIndex: 3002,
+          maxWidth: '400px'
+        }}>
+          {editDispatchError}
+        </div>
+      )}
+
+      {/* DELETE CONFIRMATION MODAL */}
+      {showDeleteConfirm && (
+        <div className="modal-overlay" onClick={() => setShowDeleteConfirm(false)}>
+          <div style={{
+            background: 'white',
+            padding: '28px',
+            borderRadius: '12px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            maxWidth: '400px',
+            width: '90%',
+            zIndex: 3001
+          }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{fontSize: '18px', fontWeight: '700', marginBottom: '12px', color: '#1e293b'}}>
+              Confirm Delete
+            </h3>
+            <p style={{fontSize: '14px', color: '#64748b', marginBottom: '24px', lineHeight: '1.5'}}>
+              {deleteTarget?.type === 'order' 
+                ? 'Are you sure you want to delete this order? This action cannot be undone.' 
+                : 'Are you sure you want to delete this dispatch record? This action cannot be undone.'}
+            </p>
+            <div style={{display: 'flex', gap: '12px', justifyContent: 'flex-end'}}>
+              <button 
+                onClick={() => setShowDeleteConfirm(false)}
+                style={{
+                  padding: '8px 20px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '6px',
+                  backgroundColor: 'white',
+                  color: '#334155',
+                  cursor: 'pointer',
+                  fontWeight: '600',
+                  fontSize: '14px',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => e.target.style.backgroundColor = '#f1f5f9'}
+                onMouseLeave={(e) => e.target.style.backgroundColor = 'white'}
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => {
+                  if (deleteTarget.type === 'order') {
+                    handleDeleteOrder(deleteTarget.id);
+                  } else {
+                    handleDeleteDispatchRecord(deleteTarget.id, deleteTarget.orderId);
+                  }
+                }}
+                style={{
+                  padding: '8px 20px',
+                  backgroundColor: '#ef4444',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontWeight: '600',
+                  fontSize: '14px',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => e.target.style.backgroundColor = '#dc2626'}
+                onMouseLeave={(e) => e.target.style.backgroundColor = '#ef4444'}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 const Icons = {
   Close: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6L18 18" stroke="#1e293b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
-  Download: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+  Download: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+  Pencil: () => <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>,
+  Trash: () => <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>,
+  X: () => <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
 };
 
 export default OrdersIndex;
