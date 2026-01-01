@@ -47,6 +47,26 @@ export const getMyOrders = async (req, res) => {
   }
 };
 
+export const getOrdersByParty = async (req, res) => {
+  const branchId = req.user.branch_id;
+  const { partyName } = req.query;
+
+  if (!partyName) {
+    return res.status(400).json({ error: 'Party name is required' });
+  }
+
+  try {
+    console.log(`Fetching orders for party: "${partyName}" and branch: ${branchId}`);
+    const orders = await orderSql.findOrdersByPartyAndBranch(branchId, partyName);
+    console.log(`Found ${orders.length} orders for party: "${partyName}"`);
+    return res.status(200).json({ data: orders });
+  } catch (err) {
+    console.error('getOrdersByParty error:', err.message);
+    console.error('Full error:', err);
+    return res.status(500).json({ error: 'Server error fetching party orders', details: err.message });
+  }
+};
+
 export const getOrderById = async (req, res) => {
   const branchId = req.user.branch_id;
   const { id } = req.params;

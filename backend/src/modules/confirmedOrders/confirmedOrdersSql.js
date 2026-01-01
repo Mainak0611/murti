@@ -64,6 +64,40 @@ export const findOrdersByBranchId = async (branchId) => {
   return rows;
 };
 
+export const findOrdersByPartyAndBranch = async (branchId, partyName) => {
+  const sql = `
+    SELECT 
+      o.id,
+      o.party_name,
+      o.reference,
+      o.order_date,
+      o.status,
+      o.contact_no,
+      o.remark,
+      o.created_at,
+      COALESCE(
+        json_agg(
+          json_build_object(
+            'item_id', oi.item_id,
+            'item_name', i.item_name,
+            'size', i.size,
+            'ordered_quantity', oi.ordered_quantity,
+            'dispatched_quantity', oi.dispatched_quantity
+          ) ORDER BY i.item_name
+        ) FILTER (WHERE oi.id IS NOT NULL), 
+        '[]'::json
+      ) as items
+    FROM public.orders o
+    LEFT JOIN public.order_items oi ON o.id = oi.order_id
+    LEFT JOIN public.items i ON oi.item_id = i.id
+    WHERE o.branch_id = $1 AND o.party_name = $2
+    GROUP BY o.id, o.party_name, o.reference, o.order_date, o.status, o.contact_no, o.remark, o.created_at
+    ORDER BY o.order_date DESC, o.created_at DESC
+  `;
+  const { rows } = await pool.query(sql, [branchId, partyName]);
+  return rows;
+};
+
 export const findOrderById = async (id) => {
   const orderSql = `SELECT * FROM public.orders WHERE id = $1`;
   const { rows: orderRows } = await pool.query(orderSql, [id]);

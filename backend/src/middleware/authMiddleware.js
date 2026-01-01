@@ -53,10 +53,16 @@ export const protect = asyncHandler(async (req, res, next) => {
             next();
         } catch (error) {
             console.error('Token validation failed:', error.message);
-            res.status(401).json({ 
-                message: 'Not authorized, token failed',
-                details: error.name 
-            });
+            
+            // Don't send response if headers already sent
+            if (!res.headersSent) {
+                res.status(401).json({ 
+                    message: 'Not authorized, token failed',
+                    details: error.name,
+                    error: error.message
+                });
+            }
+            return; // Stop execution
         }
     }
 

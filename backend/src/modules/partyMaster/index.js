@@ -22,6 +22,7 @@ const READ_ACCESS = [
 
 // READ Routes: Allow access if user has ANY of the permissions in READ_ACCESS
 router.get('/', protect, restrictTo(READ_ACCESS), getMyParties);
+router.get('/list', protect, restrictTo(READ_ACCESS), getMyParties);  // Alias for /list endpoint
 router.get('/:id', protect, restrictTo(READ_ACCESS), getPartyById);
 
 // WRITE Routes: Strictly for 'party_master' only

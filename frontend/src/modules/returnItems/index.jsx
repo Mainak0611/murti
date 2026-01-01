@@ -178,7 +178,7 @@ const ReturnItemIndex = () => {
           </div>
         </div>
 
-        <ReturnItemTable data={filteredData} loading={loading} />
+        <ReturnItemTable data={filteredData} loading={loading} onRefresh={fetchReturns} showToast={showToast} />
       </div>
 
       {toast.show && (

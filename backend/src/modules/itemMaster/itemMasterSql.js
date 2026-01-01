@@ -13,16 +13,8 @@ export const createItem = async ({ user_id, branch_id, item_name, size, hsn_code
   const safeCurStock = current_stock !== undefined && current_stock !== '' ? current_stock : 0;
 
   const params = [
-    user_id, 
-    branch_id, // Insert Branch ID
-    item_name, 
-    size || null, 
-    hsn_code || null, 
-    weight || null, 
-    safePrice, 
-    safeMinStock,
-    safeCurStock,
-    remarks || null
+    user_id, branch_id, item_name, size || null, hsn_code || null, 
+    weight || null, safePrice, safeMinStock, safeCurStock, remarks || null
   ];
 
   const { rows } = await pool.query(sql, params);
@@ -35,13 +27,8 @@ export const findItemById = async (id) => {
   return rows.length ? rows[0] : null;
 };
 
-// Updated to filter by Branch ID
 export const findItemsByBranchId = async (branchId) => {
-  const sql = `
-    SELECT * FROM public.items
-    WHERE branch_id = $1
-    ORDER BY id DESC
-  `;
+  const sql = `SELECT * FROM public.items WHERE branch_id = $1 ORDER BY id DESC`;
   const { rows } = await pool.query(sql, [branchId]);
   return rows;
 };
@@ -62,15 +49,7 @@ export const updateItemById = async (id, { item_name, size, hsn_code, weight, pr
   `;
   
   const params = [
-    id, 
-    item_name, 
-    size, 
-    hsn_code, 
-    weight, 
-    price, 
-    minimum_stock, 
-    current_stock,
-    remarks 
+    id, item_name, size, hsn_code, weight, price, minimum_stock, current_stock, remarks 
   ];
   
   const { rows } = await pool.query(sql, params);
@@ -81,4 +60,42 @@ export const deleteItemById = async (id) => {
   const sql = `DELETE FROM public.items WHERE id = $1 RETURNING id`;
   const { rows } = await pool.query(sql, [id]);
   return rows.length ? rows[0] : null;
+};
+
+// =========================================================
+// NEW SQL FUNCTIONS
+// =========================================================
+
+// 1. Efficiently update ONLY stock
+export const updateItemStock = async (id, newStock) => {
+    const sql = `UPDATE public.items SET current_stock = $2 WHERE id = $1`;
+    await pool.query(sql, [id, newStock]);
+};
+
+// 2. Insert into History Log
+export const createStockLog = async ({ item_id, branch_id, user_id, previous_stock, change_qty, new_stock, transaction_type, remarks }) => {
+    const sql = `
+        INSERT INTO public.stock_logs
+        (item_id, branch_id, user_id, previous_stock, change_qty, new_stock, transaction_type, remarks)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `;
+    await pool.query(sql, [item_id, branch_id, user_id, previous_stock, change_qty, new_stock, transaction_type, remarks]);
+};
+
+// 3. Get Logs for an Item
+export const findLogsByItemId = async (itemId) => {
+    const sql = `
+        SELECT 
+            sl.id, 
+            sl.created_at, 
+            sl.transaction_type, 
+            sl.change_qty as change_amount, -- Renaming to match frontend expectation
+            sl.new_stock, 
+            sl.remarks
+        FROM public.stock_logs sl
+        WHERE sl.item_id = $1
+        ORDER BY sl.created_at DESC
+    `;
+    const { rows } = await pool.query(sql, [itemId]);
+    return rows;
 };

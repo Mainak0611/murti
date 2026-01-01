@@ -6,6 +6,13 @@ const getTodayLocal = () => {
   return d.toISOString().split('T')[0];
 };
 
+const formatDate = (dateString) => {
+  if (!dateString) return '-';
+  return new Date(dateString).toLocaleDateString('en-GB', {
+    day: '2-digit', month: 'short', year: 'numeric'
+  });
+};
+
 // --- REUSABLE SEARCHABLE SELECT COMPONENT (With Keyboard Support) ---
 const SearchableSelect = ({ options, value, onChange, placeholder, labelKey = 'name', valueKey = 'id' }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -160,7 +167,9 @@ const ReturnItemForm = ({ onSuccess, showToast }) => {
   const [generalInfo, setGeneralInfo] = useState({
     partyId: '',
     partyName: '',
+    orderId: '',
     returnDate: getTodayLocal(),
+    challanNumber: '',
   });
 
   // 2. Items Array
@@ -171,7 +180,9 @@ const ReturnItemForm = ({ onSuccess, showToast }) => {
   // --- Data Sources ---
   const [availableItems, setAvailableItems] = useState([]);
   const [availableParties, setAvailableParties] = useState([]);
+  const [availableOrders, setAvailableOrders] = useState([]); // <--- NEW
   const [loading, setLoading] = useState(false);
+  const [loadingOrders, setLoadingOrders] = useState(false); // <--- NEW
 
   // Load Master Data
   useEffect(() => {
@@ -205,38 +216,161 @@ const ReturnItemForm = ({ onSuccess, showToast }) => {
     fetchData();
   }, []);
 
-  // --- Handle Party Selection ---
-  const handlePartyChange = (selectedId) => {
+  // --- Handle Party Selection & Load Orders ---
+  const handlePartyChange = async (selectedId) => {
     const party = availableParties.find(p => String(p.id) === String(selectedId));
 
     if (party) {
         setGeneralInfo(prev => ({
             ...prev,
             partyId: selectedId,
-            partyName: party.party_name 
+            partyName: party.party_name,
+            orderId: '' // <--- RESET ORDER WHEN PARTY CHANGES
         }));
+
+        // <--- NEW: Fetch orders for this party
+        setLoadingOrders(true);
+        try {
+            const res = await api.get(`/api/orders/by-party?partyName=${encodeURIComponent(party.party_name)}`);
+            const ordersData = Array.isArray(res.data) ? res.data : (res.data.data || []);
+            setAvailableOrders(ordersData);
+            
+            // Auto-select first order and populate items
+            if (ordersData.length > 0) {
+                const firstOrder = ordersData[0];
+                setGeneralInfo(prev => ({
+                    ...prev,
+                    orderId: String(firstOrder.id)
+                }));
+                
+                // Populate items with enhanced data from first order
+                await populateItemsFromOrder(String(firstOrder.id), ordersData);
+            } else {
+                setItems([]);
+            }
+        } catch (err) {
+            console.error("Failed to load orders for party", err);
+            showToast("Failed to load orders for this party", "error");
+            setAvailableOrders([]);
+            setItems([]);
+        } finally {
+            setLoadingOrders(false);
+        }
     } else {
         setGeneralInfo(prev => ({
             ...prev,
             partyId: '',
-            partyName: ''
+            partyName: '',
+            orderId: ''
         }));
+        setAvailableOrders([]);
+        setItems([]);
     }
+  };
+
+  // Helper function to populate items from order
+  const populateItemsFromOrder = async (selectedOrderId, orders) => {
+    const selectedOrder = orders.find(o => String(o.id) === String(selectedOrderId));
+    if (!selectedOrder || !selectedOrder.items) {
+        setItems([]);
+        return;
+    }
+
+    try {
+        const returnsRes = await api.get(`/api/returns`);
+        const allReturns = Array.isArray(returnsRes.data) ? returnsRes.data : (returnsRes.data.data || []);
+        
+        // Filter returns for this order - ensure proper type comparison
+        const orderReturns = allReturns.filter(r => {
+            return r.order_id && String(r.order_id) === String(selectedOrder.id);
+        });
+        
+        // Create return map: item_id -> total_returned_quantity
+        const returnMap = {};
+        orderReturns.forEach(r => {
+            const itemId = String(r.item_id);
+            if (!returnMap[itemId]) {
+                returnMap[itemId] = 0;
+            }
+            returnMap[itemId] += parseFloat(r.quantity) || 0;
+        });
+        
+        const orderItems = selectedOrder.items.filter(i => i && i.item_id).map(item => {
+            const itemDetail = availableItems.find(ai => String(ai.id) === String(item.item_id));
+            const unitWeight = itemDetail ? parseFloat(itemDetail.weight) || 0 : 0;
+            const orderedWeight = unitWeight * (parseFloat(item.ordered_quantity) || 0);
+            const alreadyReturned = returnMap[String(item.item_id)] || 0;
+            const pendingQty = (parseFloat(item.dispatched_quantity) || 0) - alreadyReturned;
+            
+            return {
+                itemId: String(item.item_id),
+                itemName: item.item_name || '',
+                size: item.size || '',
+                orderedQuantity: parseFloat(item.ordered_quantity) || 0,
+                dispatchedQuantity: parseFloat(item.dispatched_quantity) || 0,
+                alreadyReturnedQuantity: alreadyReturned,
+                pendingQuantity: Math.max(0, pendingQty),
+                unitWeight: unitWeight,
+                orderedWeight: orderedWeight,
+                quantity: '',
+                returnWeight: 0,
+                remark: ''
+            };
+        });
+        
+        if (orderItems.length > 0) {
+            setItems(orderItems);
+        } else {
+            setItems([]);
+        }
+    } catch (err) {
+        console.error("Failed to fetch return history", err);
+        // Fallback: just show basic items
+        const orderItems = selectedOrder.items.filter(i => i && i.item_id).map(item => {
+            const itemDetail = availableItems.find(ai => String(ai.id) === String(item.item_id));
+            const unitWeight = itemDetail ? parseFloat(itemDetail.weight) || 0 : 0;
+            const orderedWeight = unitWeight * (parseFloat(item.ordered_quantity) || 0);
+            
+            return {
+                itemId: String(item.item_id),
+                itemName: item.item_name || '',
+                size: item.size || '',
+                orderedQuantity: parseFloat(item.ordered_quantity) || 0,
+                dispatchedQuantity: parseFloat(item.dispatched_quantity) || 0,
+                alreadyReturnedQuantity: 0,
+                pendingQuantity: parseFloat(item.dispatched_quantity) || 0,
+                unitWeight: unitWeight,
+                orderedWeight: orderedWeight,
+                quantity: '',
+                returnWeight: 0,
+                remark: ''
+            };
+        });
+        setItems(orderItems);
+    }
+  };
+
+  // <--- NEW: Handle Order Tab Selection & Pre-populate Items with Enhanced Data
+  const handleOrderTabSelect = async (selectedOrderId) => {
+    setGeneralInfo(prev => ({
+        ...prev,
+        orderId: selectedOrderId
+    }));
+
+    await populateItemsFromOrder(selectedOrderId, availableOrders);
   };
 
   // --- Row Handlers ---
   const handleItemChange = (index, field, value) => {
     const updated = [...items];
-    updated[index][field] = value;
-    setItems(updated);
-  };
-
-  const addItemRow = () => {
-    setItems([...items, { itemId: '', quantity: '', remark: '' }]);
-  };
-
-  const removeItemRow = (index) => {
-    const updated = items.filter((_, i) => i !== index);
+    if (field === 'quantity') {
+        updated[index][field] = value;
+        // Calculate return weight
+        const qty = parseFloat(value) || 0;
+        updated[index].returnWeight = qty * updated[index].unitWeight;
+    } else {
+        updated[index][field] = value;
+    }
     setItems(updated);
   };
 
@@ -249,10 +383,20 @@ const ReturnItemForm = ({ onSuccess, showToast }) => {
       return;
     }
 
-    const validItems = items.filter(i => i.itemId && i.quantity);
+    if (!generalInfo.orderId) {
+      showToast('Please select an order to create return', 'error');
+      return;
+    }
+
+    if (!generalInfo.challanNumber || !generalInfo.challanNumber.trim()) {
+      showToast('Challan Number is required', 'error');
+      return;
+    }
+
+    const validItems = items.filter(i => i.quantity && parseInt(i.quantity) > 0);
     
     if (validItems.length === 0) {
-      showToast('Please add at least one item to return', 'error');
+      showToast('Please enter quantity for at least one item', 'error');
       return;
     }
 
@@ -261,7 +405,9 @@ const ReturnItemForm = ({ onSuccess, showToast }) => {
       await api.post('/api/returns', {
         party_id: generalInfo.partyId,
         party_name: generalInfo.partyName,
+        order_id: parseInt(generalInfo.orderId), // <--- INCLUDE ORDER ID
         return_date: generalInfo.returnDate,
+        challan_number: generalInfo.challanNumber,
         items: validItems.map(i => ({
             item_id: parseInt(i.itemId),
             quantity: parseInt(i.quantity),
@@ -271,12 +417,15 @@ const ReturnItemForm = ({ onSuccess, showToast }) => {
 
       showToast('Returns logged & Stock updated successfully!', 'success');
       
-      setGeneralInfo({
-        partyId: '',
-        partyName: '',
+      // Silent refresh: refresh items to show updated "Already Returned" counts
+      await populateItemsFromOrder(generalInfo.orderId, availableOrders);
+      
+      // Reset return date to today
+      setGeneralInfo(prev => ({
+        ...prev,
         returnDate: getTodayLocal(),
-      });
-      setItems([{ itemId: '', quantity: '', remark: '' }]);
+        challanNumber: ''
+      }));
       
       if (onSuccess) onSuccess();
     } catch (err) {
@@ -304,6 +453,18 @@ const ReturnItemForm = ({ onSuccess, showToast }) => {
                 required 
             />
           </div>
+
+          <div className="form-group">
+            <label className="form-label">Challan Number *</label>
+            <input 
+                type="text" 
+                className="form-input" 
+                placeholder="e.g., CHL-001" 
+                value={generalInfo.challanNumber} 
+                onChange={e => setGeneralInfo({...generalInfo, challanNumber: e.target.value})}
+                required
+            />
+          </div>
           
           <div className="form-group" style={{ gridColumn: 'span 2' }}>
             <label className="form-label">Select Party</label>
@@ -318,68 +479,116 @@ const ReturnItemForm = ({ onSuccess, showToast }) => {
           </div>
         </div>
 
+        {/* --- Order Selection as Tabs --- */}
+        {generalInfo.partyId && (
+          <div style={{ marginBottom: 20 }}>
+            <label className="form-label" style={{marginBottom: 10, display: 'block'}}>Select Order</label>
+            {loadingOrders ? (
+              <div style={{ padding: '12px', color: '#64748b', fontStyle: 'italic' }}>Loading orders...</div>
+            ) : availableOrders.length > 0 ? (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 15 }}>
+                {availableOrders.map(order => (
+                  <button
+                    key={order.id}
+                    type="button"
+                    onClick={() => handleOrderTabSelect(String(order.id))}
+                    className={String(order.id) === generalInfo.orderId ? 'btn btn-primary' : 'btn btn-secondary'}
+                    style={{fontSize: '14px', padding: '10px 16px'}}
+                  >
+                    {formatDate(order.order_date)}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div style={{ padding: '12px', color: '#ef4444', fontStyle: 'italic' }}>
+                No confirmed orders found for this party
+              </div>
+            )}
+          </div>
+        )}
+
         <hr style={{margin: '20px 0', border: 'none', borderTop: '1px solid #e2e8f0'}} />
 
-        {/* --- Items List Section --- */}
-        <div style={{marginBottom: 20}}>
+        {/* --- Items List Section (Table View) --- */}
+        {generalInfo.partyId && items.length > 0 && (
+          <div style={{marginBottom: 20}}>
             <label className="form-label" style={{marginBottom: 10, display: 'block'}}>Items to Return</label>
             
-            {items.map((row, index) => (
-                <div key={index} style={{display: 'flex', gap: 10, marginBottom: 10, alignItems: 'center'}}>
-                    <div style={{flex: 2}}>
-                        <SearchableSelect 
-                            options={availableItems}
-                            value={row.itemId}
-                            onChange={(val) => handleItemChange(index, 'itemId', val)}
-                            placeholder="Search item..."
-                            labelKey="displayName"
-                            valueKey="id"
-                        />
-                    </div>
-                    <div style={{flex: 1}}>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ 
+                width: '100%', 
+                borderCollapse: 'collapse', 
+                fontSize: '15px', // Moderately increased font size
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                overflow: 'hidden'
+              }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                    <th style={{ padding: '14px 11px', textAlign: 'left', fontWeight: '700', color: '#475569', whiteSpace: 'nowrap', fontSize: '15px' }}>Item Name</th>
+                    <th style={{ padding: '14px 9px', textAlign: 'center', fontWeight: '700', color: '#475569', fontSize: '15px' }}>Ordered Qty</th>
+                    <th style={{ padding: '14px 9px', textAlign: 'center', fontWeight: '700', color: '#475569', fontSize: '15px' }}>Order Weight</th>
+                    <th style={{ padding: '14px 9px', textAlign: 'center', fontWeight: '700', color: '#475569', fontSize: '15px' }}>Dispatched Qty</th>
+                    <th style={{ padding: '14px 9px', textAlign: 'center', fontWeight: '700', color: '#ef4444', fontSize: '15px' }}>Returned</th>
+                    <th style={{ padding: '14px 9px', textAlign: 'center', fontWeight: '700', color: '#059669', fontSize: '15px' }}>Pending Qty</th>
+                    <th style={{ padding: '14px 9px', textAlign: 'center', fontWeight: '700', color: '#ef4444', fontSize: '15px' }}>Return Qty *</th>
+                    <th style={{ padding: '14px 9px', textAlign: 'center', fontWeight: '700', color: '#475569', fontSize: '15px' }}>Return Weight</th>
+                    <th style={{ padding: '14px 9px', textAlign: 'left', fontWeight: '700', color: '#475569', fontSize: '15px' }}>Remark</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((row, index) => (
+                    <tr key={index} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: index % 2 === 0 ? '#fff' : '#f9fafb' }}>
+                      <td style={{ padding: '14px 11px', color: '#334155', fontWeight: '600', whiteSpace: 'nowrap', fontSize: '15px' }}>
+                        {row.itemName} {row.size ? `(${row.size})` : ''}
+                      </td>
+                      <td style={{ padding: '14px 9px', textAlign: 'center', color: '#475569', fontSize: '15px' }}>
+                        {row.orderedQuantity}
+                      </td>
+                      <td style={{ padding: '14px 9px', textAlign: 'center', color: '#475569', fontSize: '15px' }}>
+                        {(row.orderedWeight || 0).toFixed(2)} kg
+                      </td>
+                      <td style={{ padding: '14px 9px', textAlign: 'center', color: '#475569', fontSize: '15px' }}>
+                        {row.dispatchedQuantity}
+                      </td>
+                      <td style={{ padding: '14px 9px', textAlign: 'center', color: '#ef4444', fontWeight: '700', fontSize: '15px' }}>
+                        {row.alreadyReturnedQuantity}
+                      </td>
+                      <td style={{ padding: '14px 9px', textAlign: 'center', color: '#059669', fontWeight: '700', fontSize: '15px' }}>
+                        {row.pendingQuantity}
+                      </td>
+                      <td style={{ padding: '14px 9px', textAlign: 'center' }}>
                         <input 
-                            type="number" 
-                            className="form-input" 
-                            placeholder="Qty" 
-                            value={row.quantity} 
-                            onChange={e => handleItemChange(index, 'quantity', e.target.value)} 
-                            min="1" 
+                          type="number" 
+                          className="form-input" 
+                          placeholder="0" 
+                          value={row.quantity} 
+                          onChange={e => handleItemChange(index, 'quantity', e.target.value)} 
+                          min="0" 
+                          max={row.pendingQuantity}
+                          style={{ width: '80px', textAlign: 'center', padding: '8px 5px', fontSize: '15px' }}
                         />
-                    </div>
-                    <div style={{flex: 2}}>
+                      </td>
+                      <td style={{ padding: '14px 9px', textAlign: 'center', color: '#475569', fontSize: '15px' }}>
+                        {(row.returnWeight || 0).toFixed(2)} kg
+                      </td>
+                      <td style={{ padding: '14px 9px', color: '#475569', fontSize: '15px' }}>
                         <input 
-                            type="text" 
-                            className="form-input" 
-                            placeholder="Specific remark (optional)" 
-                            value={row.remark} 
-                            onChange={e => handleItemChange(index, 'remark', e.target.value)} 
+                          type="text" 
+                          className="form-input" 
+                          placeholder="e.g., Damaged" 
+                          value={row.remark} 
+                          onChange={e => handleItemChange(index, 'remark', e.target.value)}
+                          style={{ width: '100px', padding: '8px 5px', fontSize: '15px' }}
                         />
-                    </div>
-                    <button 
-                        type="button" 
-                        onClick={() => removeItemRow(index)}
-                        style={{
-                            background: '#fee2e2', color: '#ef4444', 
-                            border: 'none', borderRadius: 6,
-                            width: 38, height: 38, cursor: 'pointer',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center'
-                        }}
-                        title="Remove Item"
-                    >
-                        ✕
-                    </button>
-                </div>
-            ))}
-
-            <button 
-                type="button" 
-                onClick={addItemRow} 
-                className="btn btn-secondary" 
-                style={{fontSize: 13, padding: '6px 12px'}}
-            >
-                + Add Another Item
-            </button>
-        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
         
         <div style={{display: 'flex', justifyContent: 'flex-end'}}>
             <button type="submit" className="btn btn-primary" disabled={loading} style={{minWidth: 140}}>

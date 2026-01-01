@@ -1,5 +1,5 @@
 import express from 'express';
-import { createOrderDirectly, getMyOrders, getOrderById, updateDispatch, updateOrder, updateDispatchEntry, deleteOrder, deleteDispatchEntry } from './confirmedOrdersService.js'; // Check your imports
+import { createOrderDirectly, getMyOrders, getOrdersByParty, getOrderById, updateDispatch, updateOrder, updateDispatchEntry, deleteOrder, deleteDispatchEntry } from './confirmedOrdersService.js'; // Check your imports
 import { protect, restrictTo } from '../../middleware/authMiddleware.js';
 
 const router = express.Router();
@@ -9,6 +9,7 @@ router.post('/', protect, restrictTo('confirmed_orders'), createOrderDirectly);
 
 // 1. View Orders: Needs 'confirmed_orders' OR 'completed_orders' permission (for viewing both confirmed and completed)
 router.get('/', protect, restrictTo(['confirmed_orders', 'completed_orders']), getMyOrders);
+router.get('/by-party', protect, restrictTo(['confirmed_orders', 'completed_orders']), getOrdersByParty);
 router.get('/:id', protect, restrictTo(['confirmed_orders', 'completed_orders']), getOrderById);
 
 // 2. Update Order: Needs 'confirmed_orders' permission

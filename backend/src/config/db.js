@@ -40,7 +40,11 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }, // required for Supabase hosted certs
   max: 20,                               // increase pool size
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 20000,        // raise timeout so transient network latency won't fail immediately
+  connectionTimeoutMillis: 30000,        // increased timeout to 30 seconds
+  statement_timeout: 30000,              // query execution timeout (30 seconds)
+  query_timeout: 30000,                  // another timeout parameter
+  keepAlive: true,                       // enable TCP keep-alive
+  keepAliveInitialDelayMillis: 10000,    // delay before first keep-alive probe
 });
 
 pool.on("error", (err, client) => {

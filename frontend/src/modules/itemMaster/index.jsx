@@ -4,20 +4,195 @@ import api from '../../lib/api';
 import ItemMasterForm from './itemMasterForm';
 import ItemMasterTable from './itemMasterTable';
 
+// ==========================================
+// 1. COMPONENT: STOCK HISTORY MODAL
+// ==========================================
+const StockHistoryModal = ({ item, onClose }) => {
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!item) return;
+    api.get(`/api/items/${item.id}/logs`)
+      .then(res => setLogs(res.data.data || []))
+      .catch(err => console.error("Failed to load logs", err))
+      .finally(() => setLoading(false));
+  }, [item]);
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-card" style={{ width: '600px' }}>
+        {/* Header */}
+        <div className="modal-header">
+          <div>
+            <h3 style={{ margin: 0, fontSize: '18px', color: '#1e293b' }}>Stock History</h3>
+            <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>
+                Transaction log for: <b>{item.item_name}</b>
+            </p>
+          </div>
+          <button onClick={onClose} className="close-btn">
+            <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+          </button>
+        </div>
+        
+        {/* Body */}
+        <div className="modal-body" style={{ padding: 0, overflowY: 'auto', maxHeight: '60vh' }}>
+          <table className="data-table" style={{ borderTop: 'none' }}>
+            <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: '#f8fafc' }}>
+              <tr>
+                <th style={{ paddingLeft: '24px' }}>Date</th>
+                <th>Type</th>
+                <th>Change</th>
+                <th style={{ paddingRight: '24px' }}>Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan="4" className="text-center p-4">Loading history...</td></tr>
+              ) : logs.length === 0 ? (
+                <tr><td colSpan="4" className="text-center p-4 text-muted">No transactions found.</td></tr>
+              ) : (
+                logs.map((log, idx) => (
+                  <tr key={log.id || idx}>
+                    <td className="text-sm" style={{ paddingLeft: '24px' }}>
+                      {new Date(log.created_at).toLocaleDateString()} <br/>
+                      <span className="text-muted text-xs">{new Date(log.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                    </td>
+                    <td className="text-sm capitalized">
+                        {log.transaction_type === 'loss' ? <span className="text-danger fw-bold">LOSS</span> : log.transaction_type?.replace(/_/g, ' ')}
+                        {log.remarks && <div className="text-xs text-muted italic" style={{ marginTop: '4px' }}>"{log.remarks}"</div>}
+                    </td>
+                    <td style={{ color: log.change_amount > 0 ? '#059669' : '#ef4444', fontWeight: 'bold' }}>
+                      {log.change_amount > 0 ? `+${log.change_amount}` : log.change_amount}
+                    </td>
+                    <td className="fw-bold" style={{ paddingRight: '24px' }}>{log.new_stock}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        
+        {/* Footer */}
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ==========================================
+// 2. COMPONENT: STOCK ACTION MODAL (Add / Loss)
+// ==========================================
+const StockActionModal = ({ item, mode, onClose, onSuccess, showToast }) => {
+    const [qty, setQty] = useState('');
+    const [reason, setReason] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+  
+    const isLoss = mode === 'loss';
+    const title = isLoss ? 'Report Material Loss' : 'Add Stock';
+    const themeColor = isLoss ? '#ef4444' : '#059669'; 
+  
+    const handleSubmit = async (e) => {
+      e.preventDefault();
+      if (!qty || qty <= 0) return showToast('Please enter a valid quantity', 'error');
+      
+      setSubmitting(true);
+      try {
+        const endpoint = isLoss ? `/api/items/${item.id}/loss` : `/api/items/${item.id}/add-stock`;
+        const payload = isLoss ? { qty, reason } : { qty }; 
+  
+        await api.post(endpoint, payload);
+        
+        showToast(isLoss ? 'Loss reported successfully' : 'Stock added successfully', 'success');
+        onSuccess(); 
+        onClose();
+      } catch (err) {
+        console.error(err);
+        showToast('Operation failed', 'error');
+      } finally {
+        setSubmitting(false);
+      }
+    };
+  
+    return (
+      <div className="modal-overlay">
+        <div className="modal-card">
+          <div className="modal-header">
+            <div>
+                <h3 style={{ margin: 0, fontSize: '18px', color: '#1e293b' }}>{title}</h3>
+                <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>
+                    Updating: <b>{item.item_name}</b> (Current: {item.current_stock})
+                </p>
+            </div>
+            <button onClick={onClose} className="close-btn">
+                <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+            </button>
+          </div>
+          
+          <form onSubmit={handleSubmit}>
+            <div className="modal-body">
+                <div className="form-group">
+                  <label className="form-label">{isLoss ? 'Quantity Lost' : 'Quantity to Add'}</label>
+                  <input 
+                    type="number" 
+                    className="form-input" 
+                    value={qty} 
+                    onChange={e => setQty(e.target.value)} 
+                    placeholder="0"
+                    autoFocus
+                    min="1"
+                  />
+                </div>
+                
+                {isLoss && (
+                    <div className="form-group">
+                    <label className="form-label">Reason / Remarks (Optional)</label>
+                    <textarea 
+                        className="form-input" 
+                        rows="3"
+                        value={reason} 
+                        onChange={e => setReason(e.target.value)} 
+                        placeholder="e.g. Damaged in transit..."
+                        style={{ resize: 'none' }}
+                    />
+                    </div>
+                )}
+            </div>
+  
+            <div className="modal-footer">
+              <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+              <button 
+                type="submit" 
+                className="btn btn-primary" 
+                style={{ background: themeColor, border: 'none' }} 
+                disabled={submitting}
+              >
+                {submitting ? 'Processing...' : (isLoss ? 'Confirm Loss' : 'Add Stock')}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+};
+
+// ==========================================
+// 3. MAIN COMPONENT: ITEM MASTER INDEX
+// ==========================================
 const ItemMasterIndex = () => {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
 
   // --- TAB STATE ---
-  const [activeTab, setActiveTab] = useState('master'); // 'master' or 'stock'
+  const [activeTab, setActiveTab] = useState('master'); 
 
-  // --- STOCK MANAGEMENT STATE (NEW) ---
-  const [stockChanges, setStockChanges] = useState({}); // Stores { itemId: newQty }
-  const [isBulkSaving, setIsBulkSaving] = useState(false);
-
-  // --- LIFTED STATE (For Modal/Blur) ---
-  const [viewItem, setViewItem] = useState(null);
+  // --- MODAL STATES ---
+  const [viewItem, setViewItem] = useState(null); 
+  const [historyItem, setHistoryItem] = useState(null); 
+  const [actionItem, setActionItem] = useState(null); 
 
   // --- FILTER & SORT STATE ---
   const [searchTerm, setSearchTerm] = useState('');
@@ -45,7 +220,6 @@ const ItemMasterIndex = () => {
       const res = await api.get('/api/items');
       const data = Array.isArray(res.data) ? res.data : (res.data.data || []);
       setItems(data);
-      setStockChanges({}); // Clear unsaved changes on refresh
     } catch (err) {
       console.error("Fetch error:", err);
       showToast("Failed to load items", "error");
@@ -55,46 +229,6 @@ const ItemMasterIndex = () => {
   };
 
   useEffect(() => { fetchItems(); }, []);
-
-  // --- HANDLE INDIVIDUAL INPUT CHANGE ---
-  const handleStockInputChange = (id, newVal) => {
-    setStockChanges(prev => ({
-      ...prev,
-      [id]: newVal
-    }));
-  };
-
-  // --- HANDLE BULK SAVE ---
-  const handleBulkSave = async () => {
-    const idsToUpdate = Object.keys(stockChanges);
-    if (idsToUpdate.length === 0) return;
-
-    setIsBulkSaving(true);
-    try {
-      // Create an array of API promises
-      const updatePromises = idsToUpdate.map(id => {
-        const newQty = parseInt(stockChanges[id]);
-        // Only update if it's a valid number
-        if (isNaN(newQty)) return Promise.resolve(); 
-        return api.put(`/api/items/${id}`, { current_stock: newQty });
-      });
-
-      // Execute all updates in parallel
-      await Promise.all(updatePromises);
-
-      showToast(`Successfully updated ${idsToUpdate.length} items`, 'success');
-      
-      // Refresh data to sync and clear changes
-      await fetchItems(true); 
-      setStockChanges({}); 
-
-    } catch (err) {
-      console.error(err);
-      showToast('Failed to update some items', 'error');
-    } finally {
-      setIsBulkSaving(false);
-    }
-  };
 
   // --- FILTER & SORT LOGIC ---
   const filteredData = useMemo(() => {
@@ -171,6 +305,9 @@ const ItemMasterIndex = () => {
     };
   }, []);
 
+  // Check if any modal is open to blur background
+  const isModalOpen = viewItem || historyItem || actionItem;
+
   return (
     <div className="dashboard-container">
       <style>{`
@@ -183,19 +320,17 @@ const ItemMasterIndex = () => {
           --primary-hover: #047857;
           --danger: #ef4444;
           --border: #e2e8f0;
-          --highlight-bg: #d1fae5;
-          --row-hover: #f1f5f9;
         }
 
         .dashboard-container {
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
           background-color: var(--bg-body);
           min-height: 100vh;
           padding: 40px 20px;
           padding-bottom: 100px;
           color: var(--text-main);
         }
-        .page-title { font-size: 32px; font-weight: 800; margin-bottom: 24px; }
+        .page-title { font-size: 28px; font-weight: 800; margin-bottom: 24px; letter-spacing: -0.5px; }
 
         .card {
           background: var(--bg-card);
@@ -208,18 +343,29 @@ const ItemMasterIndex = () => {
           transition: filter 0.3s ease;
         }
 
+        /* --- MODERN FORM INPUTS --- */
         .enquiry-form-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; align-items: end; }
-        .form-group { display: flex; flex-direction: column; gap: 6px; }
-        .form-label { font-size: 13px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; }
-        .form-input { padding: 10px; border: 1px solid var(--border); border-radius: 6px; width: 100%; font-size: 14px; }
-        .form-input:focus { outline: 2px solid var(--primary); border-color: transparent; }
+        .form-group { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+        .form-label { font-size: 13px; font-weight: 600; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; }
+        
+        .form-input { 
+            padding: 12px 16px; 
+            border: 1px solid #cbd5e1; 
+            border-radius: 8px; 
+            width: 100%; 
+            font-size: 15px; 
+            color: #1e293b;
+            transition: all 0.2s ease;
+            background: #fff;
+        }
+        .form-input:focus { 
+            outline: none; 
+            border-color: var(--primary); 
+            box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.1);
+        }
+        .form-input::placeholder { color: #94a3b8; }
 
-        .btn { padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none; transition: all 0.2s; white-space: nowrap; }
-        .btn-primary { background: var(--primary); color: white; }
-        .btn-primary:hover { background: var(--primary-hover); }
-        .btn-secondary { background: #f1f5f9; color: var(--text-muted); border: 1px solid var(--border); }
-        .btn-secondary:hover { background: #e2e8f0; color: var(--text-main); }
-
+        /* --- TABS --- */
         .tab-container { display: flex; gap: 10px; margin-bottom: 20px; }
         .tab-btn {
             padding: 10px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none; background: #e2e8f0; color: #64748b;
@@ -227,20 +373,103 @@ const ItemMasterIndex = () => {
         }
         .tab-btn.active { background: var(--primary); color: white; box-shadow: 0 4px 6px -1px rgba(5, 150, 105, 0.3); }
 
+        /* --- TABLE STYLES --- */
         .table-container { overflow-x: auto; border-radius: 8px; border: none; }
         .data-table { width: 100%; border-collapse: collapse; font-size: 15px; text-align: left; }
         .data-table th { background: #f8fafc; color: var(--text-muted); font-weight: 600; padding: 12px 16px; font-size: 12px; text-transform: uppercase; }
-        .data-table td { padding: 8px 16px; border-bottom: 1px solid var(--border); }
+        .data-table td { padding: 8px 16px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+        .hover\:bg-slate-50:hover { background-color: #f8fafc; }
 
-        .stock-input-changed {
-            background-color: #ecfdf5; /* light green bg */
-            border-color: #34d399; /* green border */
-            color: #065f46;
+        /* --- CLEAN TABLE ACTION BUTTONS (WITH TEXT) --- */
+        .action-btn-group { display: flex; gap: 8px; justify-content: flex-end; }
+        
+        .action-text-btn {
+            padding: 6px 12px;
+            border-radius: 6px; 
+            display: flex; alignItems: center; justifyContent: center; gap: 6px;
+            border: 1px solid transparent; 
+            cursor: pointer; 
+            transition: all 0.2s; 
+            font-size: 12px;
+            font-weight: 600;
+            background: white;
+            white-space: nowrap;
+        }
+        
+        /* Add Stock (Green) */
+        .btn-add { color: #059669; border-color: #a7f3d0; background: #ecfdf5; }
+        .btn-add:hover { background: #059669; color: white; border-color: #059669; }
+        
+        /* Loss (Red) */
+        .btn-loss { color: #ef4444; border-color: #fecaca; background: #fef2f2; }
+        .btn-loss:hover { background: #ef4444; color: white; border-color: #ef4444; }
+
+        /* History (Gray) */
+        .btn-history { color: #64748b; border-color: #cbd5e1; background: #f8fafc; }
+        .btn-history:hover { background: #64748b; color: white; border-color: #64748b; }
+
+        /* --- BUTTONS --- */
+        .btn { padding: 10px 20px; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; border: none; transition: all 0.2s; white-space: nowrap; }
+        .btn-secondary { background: white; color: #64748b; border: 1px solid #cbd5e1; }
+        .btn-secondary:hover { background: #f8fafc; border-color: #94a3b8; color: #334155; }
+        .btn-primary { background: var(--primary); color: white; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); }
+        .btn-primary:hover { filter: brightness(110%); }
+
+        /* --- POLISHED MODAL --- */
+        .modal-overlay { 
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0; 
+            background-color: rgba(15, 23, 42, 0.6); 
+            backdrop-filter: blur(4px);
+            display: flex; alignItems: center; justifyContent: center; 
+            z-index: 3000; 
+            animation: fadeIn 0.2s ease-out;
+        }
+        
+        .modal-card { 
+            background: white;
+            width: 500px; 
+            border-radius: 16px; 
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            display: flex; flex-direction: column; 
+            overflow: hidden;
+            animation: scaleIn 0.2s ease-out;
+            border: 1px solid #e2e8f0;
         }
 
-        .toast-notification { position: fixed; bottom: 24px; right: 24px; padding: 12px 20px; border-radius: 8px; color: white; font-weight: 600; box-shadow: 0 4px 6px rgba(0,0,0,0.1); z-index: 2000; animation: slideIn 0.3s ease-out; }
+        .modal-header { 
+            padding: 20px 24px; 
+            border-bottom: 1px solid #f1f5f9; 
+            display: flex; justify-content: space-between; align-items: flex-start; 
+            background: #ffffff;
+        }
+        
+        .modal-body { padding: 24px; }
+        
+        .modal-footer { 
+            padding: 20px 24px; 
+            background: #f8fafc; 
+            border-top: 1px solid #f1f5f9; 
+            display: flex; justify-content: flex-end; gap: 12px;
+        }
+
+        .close-btn { border: none; background: transparent; color: #94a3b8; cursor: pointer; padding: 4px; border-radius: 4px; transition: all 0.2s; }
+        .close-btn:hover { background: #f1f5f9; color: #475569; }
+
+        /* Utility */
+        .text-muted { color: var(--text-muted); }
+        .text-sm { font-size: 13px; }
+        .text-xs { font-size: 11px; }
+        .text-center { text-align: center; }
+        .fw-bold { font-weight: 600; }
+        .italic { font-style: italic; }
+        .text-danger { color: var(--danger); }
+        .capitalized { text-transform: capitalize; }
+
+        .toast-notification { position: fixed; bottom: 24px; right: 24px; padding: 12px 20px; border-radius: 8px; color: white; font-weight: 600; box-shadow: 0 4px 6px rgba(0,0,0,0.1); z-index: 4000; animation: slideIn 0.3s ease-out; }
         .toast-success { background-color: var(--primary); }
         .toast-error { background-color: var(--danger); }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes scaleIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
         @keyframes slideIn { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
       `}</style>
 
@@ -270,55 +499,58 @@ const ItemMasterIndex = () => {
 
         <div ref={sentinelRef} style={{ height: '1px', marginBottom: '-1px' }} />
 
-        {/* --- STICKY FILTER CARD --- */}
-        <div 
-          ref={wrapperRef} 
-          style={{ 
-            height: isPinned ? cardMetrics.height : 'auto',
-            marginBottom: '24px',
-            position: 'relative'
-          }}
-        >
-          <div 
-            ref={cardRef}
-            className="card" 
-            style={isPinned ? {
-              position: 'fixed', top: 0, left: cardMetrics.left, width: cardMetrics.width, 
-              zIndex: 1000, borderRadius: '0 0 12px 12px', 
-              boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
-              margin: 0, filter: viewItem ? 'blur(5px)' : 'none', pointerEvents: viewItem ? 'none' : 'auto'
-            } : {
-              margin: 0, filter: viewItem ? 'blur(5px)' : 'none', pointerEvents: viewItem ? 'none' : 'auto'
-            }}
-          >
-            <div className="enquiry-form-grid">
-              <div className="form-group">
-                <label className="form-label">Search</label>
-                <input type="text" className="form-input" placeholder="Name / HSN" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Sort By</label>
-                <select className="form-input" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-                  <option value="id">ID</option>
-                  <option value="weight">Weight</option>
-                  <option value="size">Size</option>
-                  <option value="price">Price</option>
-                </select>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Order</label>
-                <select className="form-input" value={sortOrder} onChange={(e) => setSortOrder(e.target.value)}>
-                  <option value="asc">Ascending (A-Z)</option>
-                  <option value="desc">Descending (Z-A)</option>
-                </select>
-              </div>
-              <div className="form-group">
-                <label className="form-label">&nbsp;</label>
-                <button className="btn btn-secondary" style={{width: '100%'}} onClick={clearFilters}>Clear Filters</button>
+        {/* --- STICKY FILTER CARD (Parent Level) --- */}
+        {/* FIX: Only render this global filter if we are on tabs that use the parent's filtered data */}
+        {(activeTab === 'master' || activeTab === 'stock') && (
+            <div 
+              ref={wrapperRef} 
+              style={{ 
+                height: isPinned ? cardMetrics.height : 'auto',
+                marginBottom: '24px',
+                position: 'relative'
+              }}
+            >
+              <div 
+                ref={cardRef}
+                className="card" 
+                style={isPinned ? {
+                  position: 'fixed', top: 0, left: cardMetrics.left, width: cardMetrics.width, 
+                  zIndex: 1000, borderRadius: '0 0 12px 12px', 
+                  boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
+                  margin: 0, filter: isModalOpen ? 'blur(5px)' : 'none', pointerEvents: isModalOpen ? 'none' : 'auto'
+                } : {
+                  margin: 0, filter: isModalOpen ? 'blur(5px)' : 'none', pointerEvents: isModalOpen ? 'none' : 'auto'
+                }}
+              >
+                <div className="enquiry-form-grid">
+                  <div className="form-group">
+                    <label className="form-label">Search</label>
+                    <input type="text" className="form-input" placeholder="Name / HSN" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Sort By</label>
+                    <select className="form-input" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                      <option value="id">ID</option>
+                      <option value="weight">Weight</option>
+                      <option value="size">Size</option>
+                      <option value="price">Price</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Order</label>
+                    <select className="form-input" value={sortOrder} onChange={(e) => setSortOrder(e.target.value)}>
+                      <option value="asc">Ascending (A-Z)</option>
+                      <option value="desc">Descending (Z-A)</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">&nbsp;</label>
+                    <button className="btn btn-secondary" style={{width: '100%'}} onClick={clearFilters}>Clear Filters</button>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
+        )}
 
         {/* --- CONTENT AREA --- */}
         {activeTab === 'master' ? (
@@ -334,26 +566,8 @@ const ItemMasterIndex = () => {
         ) : (
             // Tab 2: Stock Management Table
             <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                
-                {/* --- BULK SAVE HEADER --- */}
-                <div style={{ padding: '16px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}>
-                    <h3 style={{ margin: 0, fontSize: '16px', color: '#334155' }}>Update Stock Inventory</h3>
-                    
-                    <button 
-                        onClick={handleBulkSave} 
-                        disabled={isBulkSaving || Object.keys(stockChanges).length === 0}
-                        className="btn btn-primary"
-                        style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: Object.keys(stockChanges).length === 0 ? 0.6 : 1 }}
-                    >
-                        {isBulkSaving ? (
-                            <>Saving...</>
-                        ) : (
-                            <>
-                                <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                                Save Changes ({Object.keys(stockChanges).length})
-                            </>
-                        )}
-                    </button>
+                <div style={{ padding: '16px 24px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
+                    <h3 style={{ margin: 0, fontSize: '16px', color: '#334155' }}>Current Inventory & Actions</h3>
                 </div>
 
                 <div className="table-container" style={{ border: 'none', borderRadius: 0 }}>
@@ -363,38 +577,69 @@ const ItemMasterIndex = () => {
                                 <th>Item Name</th>
                                 <th>HSN Code</th>
                                 <th>Size</th>
-                                <th>Current Stock</th>
+                                <th className="text-center">Current Stock</th>
+                                <th style={{ width: '280px', textAlign: 'right', paddingRight: '24px' }}>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {loading ? (
-                                <tr><td colSpan="4" style={{textAlign:'center', padding: '40px'}}>Loading...</td></tr>
+                                <tr><td colSpan="5" style={{textAlign:'center', padding: '40px'}}>Loading...</td></tr>
                             ) : filteredData.length === 0 ? (
-                                <tr><td colSpan="4" style={{textAlign:'center', padding: '40px', color: '#94a3b8'}}>No items found.</td></tr>
+                                <tr><td colSpan="5" style={{textAlign:'center', padding: '40px', color: '#94a3b8'}}>No items found.</td></tr>
                             ) : (
                                 filteredData.map(item => {
-                                    // Determine current value: Either from change state OR original data
-                                    const currentValue = stockChanges[item.id] !== undefined 
-                                        ? stockChanges[item.id] 
-                                        : (item.current_stock || 0);
-                                    
-                                    // Check if this row has unsaved changes for styling
-                                    const hasChanged = stockChanges[item.id] !== undefined;
-
                                     return (
                                         <tr key={item.id} className="hover:bg-slate-50">
                                             <td className="p-4 font-semibold text-slate-700">{item.item_name}</td>
                                             <td className="p-4 text-slate-600">{item.hsn_code || '-'}</td>
                                             <td className="p-4 text-slate-600">{item.size || '-'}</td>
+                                            
+                                            <td className="p-4 text-center">
+                                                <span style={{ 
+                                                    background: '#f1f5f9', padding: '6px 12px', borderRadius: '6px', 
+                                                    fontWeight: '700', color: '#334155' 
+                                                }}>
+                                                    {item.current_stock || 0}
+                                                </span>
+                                            </td>
+
                                             <td className="p-4">
-                                                <input
-                                                    type="number"
-                                                    value={currentValue}
-                                                    onChange={(e) => handleStockInputChange(item.id, e.target.value)}
-                                                    className={`form-input ${hasChanged ? 'stock-input-changed' : ''}`}
-                                                    style={{ width: '120px', textAlign: 'center', fontWeight: 'bold' }}
-                                                    min="0"
-                                                />
+                                                <div className="action-btn-group">
+                                                    <button 
+                                                        className="action-text-btn btn-add" 
+                                                        title="Add Stock"
+                                                        onClick={() => setActionItem({ item, mode: 'add' })}
+                                                    >
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                                                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                                                        </svg>
+                                                        Add New
+                                                    </button>
+
+                                                    <button 
+                                                        className="action-text-btn btn-loss" 
+                                                        title="Report Loss"
+                                                        onClick={() => setActionItem({ item, mode: 'loss' })}
+                                                    >
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                                                        </svg>
+                                                        Add Loss
+                                                    </button>
+
+                                                    <button 
+                                                        className="action-text-btn btn-history" 
+                                                        title="View Log"
+                                                        onClick={() => setHistoryItem(item)}
+                                                    >
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                                            <circle cx="12" cy="12" r="10"></circle>
+                                                            <polyline points="12 6 12 12 16 14"></polyline>
+                                                        </svg>
+                                                        History
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     );
@@ -407,12 +652,32 @@ const ItemMasterIndex = () => {
         )}
       </div>
 
+      {/* RENDER ACTION MODAL (Add / Loss) */}
+      {actionItem && (
+        <StockActionModal 
+            item={actionItem.item} 
+            mode={actionItem.mode}
+            onClose={() => setActionItem(null)} 
+            onSuccess={() => fetchItems(true)}
+            showToast={showToast}
+        />
+      )}
+
+      {/* RENDER HISTORY MODAL */}
+      {historyItem && (
+        <StockHistoryModal 
+          item={historyItem} 
+          onClose={() => setHistoryItem(null)} 
+        />
+      )}
+
       {toast.show && (
         <div className={`toast-notification ${toast.type === 'error' ? 'toast-error' : 'toast-success'}`}>
           {toast.message}
         </div>
       )}
     </div>
+    
   );
 };
 
