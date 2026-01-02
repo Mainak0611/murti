@@ -4,7 +4,7 @@ import api from '../../lib/api';
 import ItemMasterForm from './itemMasterForm';
 import ItemMasterTable from './itemMasterTable';
 import StockManagementTab from './StockManagementTab';
-import PartyDistributionTab from './partyDistributionTab'; // NEW IMPORT
+import PartyDistributionTab from './PartyDistributionTab'; // NEW IMPORT - Fixed case
 import StockSummaryTab from './StockSummaryTab'; // NEW IMPORT
 
 const ItemMasterIndex = () => {
