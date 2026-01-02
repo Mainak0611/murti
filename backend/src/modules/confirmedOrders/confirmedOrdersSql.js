@@ -1,24 +1,34 @@
 import pool from '../../config/db.js';
 
-export const createOrderDirectly = async (userId, branchId, { party_name, contact_no, reference, remark, order_date, items }) => {
+export const createOrderDirectly = async (userId, branchId, { party_name, party_id, contact_no, reference, remark, order_date, items }) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    // 1. Insert into ORDERS
+    // 1. Fetch party_id if not provided
+    let finalPartyId = party_id;
+    if (!finalPartyId) {
+      const partyRes = await client.query(
+        `SELECT id FROM public.party_master WHERE branch_id = $1 AND party_name = $2 LIMIT 1`,
+        [branchId, party_name]
+      );
+      finalPartyId = partyRes.rows[0]?.id || null;
+    }
+
+    // 2. Insert into ORDERS (now including party_id)
     const insertOrderSql = `
       INSERT INTO public.orders 
-        (user_id, branch_id, party_name, contact_no, reference, remark, order_date, status)
+        (user_id, branch_id, party_id, party_name, contact_no, reference, remark, order_date, status)
       VALUES 
-        ($1, $2, $3, $4, $5, $6, $7, 'Pending')
+        ($1, $2, $3, $4, $5, $6, $7, $8, 'Pending')
       RETURNING id;
     `;
     const orderRes = await client.query(insertOrderSql, [
-      userId, branchId, party_name, contact_no, reference, remark, order_date
+      userId, branchId, finalPartyId, party_name, contact_no, reference, remark, order_date
     ]);
     const newOrderId = orderRes.rows[0].id;
 
-    // 2. Fetch Item Details WITH Unit Weight
+    // 3. Fetch Item Details WITH Unit Weight
     const itemIds = items.map(i => i.item_id);
     const itemsRes = await client.query(`
       SELECT id, weight as unit_weight 
@@ -31,7 +41,7 @@ export const createOrderDirectly = async (userId, branchId, { party_name, contac
       itemWeightMap[row.id] = parseFloat(row.unit_weight) || 0;
     });
 
-    // 3. Insert into ORDER_ITEMS with Total Weight
+    // 4. Insert into ORDER_ITEMS with Total Weight
     for (const item of items) {
       const unitWeight = itemWeightMap[item.item_id] || 0;
       const totalWeight = unitWeight * parseFloat(item.ordered_quantity);
@@ -152,18 +162,40 @@ export const updateDispatchQuantities = async (orderId, { dispatch_date, challan
   try {
     await client.query('BEGIN');
 
+    // PRE-FETCH: Get Order & Item Info (including branch_id, party_name, party_id)
+    const orderRes = await client.query(
+      `SELECT id, branch_id, party_name, party_id FROM public.orders WHERE id = $1`,
+      [orderId]
+    );
+    if (orderRes.rows.length === 0) throw new Error('Order not found');
+    const order = orderRes.rows[0];
+    const { branch_id, party_name, party_id } = order;
+
+    // If party_id is not set in order, try to find it (for backward compatibility)
+    // But this should not happen with new orders
+    let finalPartyId = party_id;
+    if (!finalPartyId) {
+      const partyRes = await client.query(
+        `SELECT id FROM public.party_master WHERE branch_id = $1 AND party_name = $2 LIMIT 1`,
+        [branch_id, party_name]
+      );
+      finalPartyId = partyRes.rows[0]?.id || null;
+    }
+
     // PRE-FETCH: Get Unit Weights for all items in this order to calculate batch weight
-    // We map order_item_id -> unit_weight
+    // We map order_item_id -> {unit_weight, item_id}
     const weightRes = await client.query(`
-      SELECT oi.id, i.weight 
+      SELECT oi.id, oi.item_id, i.weight 
       FROM public.order_items oi
       JOIN public.items i ON oi.item_id = i.id
       WHERE oi.order_id = $1
     `, [orderId]);
     
     const weightMap = {};
+    const itemIdMap = {};
     weightRes.rows.forEach(row => {
         weightMap[row.id] = parseFloat(row.weight) || 0;
+        itemIdMap[row.id] = row.item_id;
     });
 
     // Loop through dispatch items
@@ -171,7 +203,7 @@ export const updateDispatchQuantities = async (orderId, { dispatch_date, challan
       const qtyToSend = parseFloat(item.quantity_sent); // Ensure number
       if (qtyToSend <= 0) continue;
 
-      // Calculate Batch Weight
+      const itemId = itemIdMap[item.id];
       const unitWeight = weightMap[item.id] || 0;
       const batchWeight = unitWeight * qtyToSend;
 
@@ -189,16 +221,25 @@ export const updateDispatchQuantities = async (orderId, { dispatch_date, challan
         [qtyToSend, item.id]
       );
 
-      // 3. Deduct from Main Stock (Items Table)
+      // 3. Deduct from Main Stock (Godown Stock - Items Table)
       await client.query(
-        `UPDATE public.items SET current_stock = current_stock - $1 WHERE id = (
-           SELECT item_id FROM public.order_items WHERE id = $2
-         )`,
-        [qtyToSend, item.id]
+        `UPDATE public.items SET current_stock = current_stock - $1 WHERE id = $2`,
+        [qtyToSend, itemId]
       );
+
+      // 4. ADD TO PARTY DISTRIBUTION (Party Stock)
+      if (finalPartyId) {
+        await client.query(
+          `INSERT INTO public.party_distribution (branch_id, party_id, party_name, item_id, quantity)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (branch_id, party_id, item_id) 
+           DO UPDATE SET quantity = party_distribution.quantity + EXCLUDED.quantity, updated_at = CURRENT_TIMESTAMP`,
+          [branch_id, finalPartyId, party_name, itemId, qtyToSend]
+        );
+      }
     }
 
-    // 4. Update Order Status Logic 
+    // 5. Update Order Status Logic 
     // (Optional: You might want to check if ALL items are fully dispatched to set 'Completed')
     // For now, setting to 'Dispatched' or keeping your existing logic is fine.
     // A simple check could be:

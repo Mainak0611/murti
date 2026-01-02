@@ -35,6 +35,13 @@ export const createBatchReturnEntry = async ({ userId, branchId, party_name, ret
   try {
     await client.query('BEGIN');
 
+    // Get party_id from party_master
+    const partyRes = await client.query(
+      `SELECT id FROM public.party_master WHERE branch_id = $1 AND party_name = $2 LIMIT 1`,
+      [branchId, party_name]
+    );
+    const party_id = partyRes.rows[0]?.id || null;
+
     const insertSql = `
       INSERT INTO public.returns (branch_id, order_id, party_name, item_id, quantity, return_date, challan_number, remark)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -46,10 +53,17 @@ export const createBatchReturnEntry = async ({ userId, branchId, party_name, ret
       WHERE id = $2
     `;
 
+    // SQL to subtract from party distribution
+    const updatePartyDistributionSql = `
+      UPDATE public.party_distribution 
+      SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP
+      WHERE branch_id = $2 AND party_id = $3 AND item_id = $4 AND quantity >= $1
+    `;
+
     for (const item of items) {
         if (!item.item_id || !item.quantity) continue;
 
-        // 1. Insert Log
+        // 1. Insert Return Log
         await client.query(insertSql, [
             branchId, // <--- SAVE BRANCH ID
             order_id || null, // <--- SAVE ORDER ID (can be null)
@@ -61,8 +75,13 @@ export const createBatchReturnEntry = async ({ userId, branchId, party_name, ret
             item.remark || ''
         ]);
 
-        // 2. Update Stock
+        // 2. Update Stock (Add back to Godown)
         await client.query(updateStockSql, [item.quantity, item.item_id]);
+
+        // 3. SUBTRACT FROM PARTY DISTRIBUTION
+        if (party_id) {
+          await client.query(updatePartyDistributionSql, [item.quantity, branchId, party_id, item.item_id]);
+        }
     }
 
     await client.query('COMMIT');
@@ -92,7 +111,7 @@ export const getReturnById = async (returnId) => {
 };
 
 // Delete a return entry and restore stock
-export const deleteReturnEntry = async (returnId, itemId, quantity) => {
+export const deleteReturnEntry = async (returnId, itemId, quantity, branchId, party_id) => {
     const client = await pool.connect();
     
     try {
@@ -101,11 +120,21 @@ export const deleteReturnEntry = async (returnId, itemId, quantity) => {
         // Delete the return entry
         await client.query('DELETE FROM public.returns WHERE id = $1', [returnId]);
 
-        // Restore stock (subtract the returned quantity)
+        // Restore stock (subtract the returned quantity from godown since we're deleting the return)
         await client.query(
             'UPDATE public.items SET current_stock = current_stock - $1 WHERE id = $2',
             [quantity, itemId]
         );
+
+        // Re-add to party distribution (since we're deleting the return, the party should have it back)
+        if (party_id && branchId) {
+          await client.query(
+            `UPDATE public.party_distribution 
+             SET quantity = quantity + $1, updated_at = CURRENT_TIMESTAMP
+             WHERE branch_id = $2 AND party_id = $3 AND item_id = $4`,
+            [quantity, branchId, party_id, itemId]
+          );
+        }
 
         await client.query('COMMIT');
         return true;
@@ -118,7 +147,7 @@ export const deleteReturnEntry = async (returnId, itemId, quantity) => {
 };
 
 // Update a return entry and adjust stock
-export const updateReturnEntry = async (returnId, quantity, remark, quantityDiff) => {
+export const updateReturnEntry = async (returnId, quantity, remark, quantityDiff, branchId, party_id) => {
     const client = await pool.connect();
     
     try {
@@ -145,6 +174,18 @@ export const updateReturnEntry = async (returnId, quantity, remark, quantityDiff
                 'UPDATE public.items SET current_stock = current_stock + $1 WHERE id = $2',
                 [quantityDiff, itemId]
             );
+
+            // Adjust party distribution by opposite amount
+            // quantityDiff is negative when we increase return qty (less in party stock)
+            // quantityDiff is positive when we decrease return qty (more in party stock)
+            if (party_id && branchId) {
+              await client.query(
+                `UPDATE public.party_distribution 
+                 SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP
+                 WHERE branch_id = $2 AND party_id = $3 AND item_id = $4`,
+                [quantityDiff, branchId, party_id, itemId]
+              );
+            }
         }
 
         await client.query('COMMIT');

@@ -3,196 +3,21 @@ import React, { useEffect, useState, useMemo, useRef, useLayoutEffect } from 're
 import api from '../../lib/api';
 import ItemMasterForm from './itemMasterForm';
 import ItemMasterTable from './itemMasterTable';
+import StockManagementTab from './StockManagementTab';
+import PartyDistributionTab from './partyDistributionTab'; // NEW IMPORT
+import StockSummaryTab from './StockSummaryTab'; // NEW IMPORT
 
-// ==========================================
-// 1. COMPONENT: STOCK HISTORY MODAL
-// ==========================================
-const StockHistoryModal = ({ item, onClose }) => {
-  const [logs, setLogs] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (!item) return;
-    api.get(`/api/items/${item.id}/logs`)
-      .then(res => setLogs(res.data.data || []))
-      .catch(err => console.error("Failed to load logs", err))
-      .finally(() => setLoading(false));
-  }, [item]);
-
-  return (
-    <div className="modal-overlay">
-      <div className="modal-card" style={{ width: '600px' }}>
-        {/* Header */}
-        <div className="modal-header">
-          <div>
-            <h3 style={{ margin: 0, fontSize: '18px', color: '#1e293b' }}>Stock History</h3>
-            <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>
-                Transaction log for: <b>{item.item_name}</b>
-            </p>
-          </div>
-          <button onClick={onClose} className="close-btn">
-            <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"></path></svg>
-          </button>
-        </div>
-        
-        {/* Body */}
-        <div className="modal-body" style={{ padding: 0, overflowY: 'auto', maxHeight: '60vh' }}>
-          <table className="data-table" style={{ borderTop: 'none' }}>
-            <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: '#f8fafc' }}>
-              <tr>
-                <th style={{ paddingLeft: '24px' }}>Date</th>
-                <th>Type</th>
-                <th>Change</th>
-                <th style={{ paddingRight: '24px' }}>Balance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan="4" className="text-center p-4">Loading history...</td></tr>
-              ) : logs.length === 0 ? (
-                <tr><td colSpan="4" className="text-center p-4 text-muted">No transactions found.</td></tr>
-              ) : (
-                logs.map((log, idx) => (
-                  <tr key={log.id || idx}>
-                    <td className="text-sm" style={{ paddingLeft: '24px' }}>
-                      {new Date(log.created_at).toLocaleDateString()} <br/>
-                      <span className="text-muted text-xs">{new Date(log.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                    </td>
-                    <td className="text-sm capitalized">
-                        {log.transaction_type === 'loss' ? <span className="text-danger fw-bold">LOSS</span> : log.transaction_type?.replace(/_/g, ' ')}
-                        {log.remarks && <div className="text-xs text-muted italic" style={{ marginTop: '4px' }}>"{log.remarks}"</div>}
-                    </td>
-                    <td style={{ color: log.change_amount > 0 ? '#059669' : '#ef4444', fontWeight: 'bold' }}>
-                      {log.change_amount > 0 ? `+${log.change_amount}` : log.change_amount}
-                    </td>
-                    <td className="fw-bold" style={{ paddingRight: '24px' }}>{log.new_stock}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-        
-        {/* Footer */}
-        <div className="modal-footer">
-          <button className="btn btn-secondary" onClick={onClose}>Close</button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ==========================================
-// 2. COMPONENT: STOCK ACTION MODAL (Add / Loss)
-// ==========================================
-const StockActionModal = ({ item, mode, onClose, onSuccess, showToast }) => {
-    const [qty, setQty] = useState('');
-    const [reason, setReason] = useState('');
-    const [submitting, setSubmitting] = useState(false);
-  
-    const isLoss = mode === 'loss';
-    const title = isLoss ? 'Report Material Loss' : 'Add Stock';
-    const themeColor = isLoss ? '#ef4444' : '#059669'; 
-  
-    const handleSubmit = async (e) => {
-      e.preventDefault();
-      if (!qty || qty <= 0) return showToast('Please enter a valid quantity', 'error');
-      
-      setSubmitting(true);
-      try {
-        const endpoint = isLoss ? `/api/items/${item.id}/loss` : `/api/items/${item.id}/add-stock`;
-        const payload = isLoss ? { qty, reason } : { qty }; 
-  
-        await api.post(endpoint, payload);
-        
-        showToast(isLoss ? 'Loss reported successfully' : 'Stock added successfully', 'success');
-        onSuccess(); 
-        onClose();
-      } catch (err) {
-        console.error(err);
-        showToast('Operation failed', 'error');
-      } finally {
-        setSubmitting(false);
-      }
-    };
-  
-    return (
-      <div className="modal-overlay">
-        <div className="modal-card">
-          <div className="modal-header">
-            <div>
-                <h3 style={{ margin: 0, fontSize: '18px', color: '#1e293b' }}>{title}</h3>
-                <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>
-                    Updating: <b>{item.item_name}</b> (Current: {item.current_stock})
-                </p>
-            </div>
-            <button onClick={onClose} className="close-btn">
-                <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"></path></svg>
-            </button>
-          </div>
-          
-          <form onSubmit={handleSubmit}>
-            <div className="modal-body">
-                <div className="form-group">
-                  <label className="form-label">{isLoss ? 'Quantity Lost' : 'Quantity to Add'}</label>
-                  <input 
-                    type="number" 
-                    className="form-input" 
-                    value={qty} 
-                    onChange={e => setQty(e.target.value)} 
-                    placeholder="0"
-                    autoFocus
-                    min="1"
-                  />
-                </div>
-                
-                {isLoss && (
-                    <div className="form-group">
-                    <label className="form-label">Reason / Remarks (Optional)</label>
-                    <textarea 
-                        className="form-input" 
-                        rows="3"
-                        value={reason} 
-                        onChange={e => setReason(e.target.value)} 
-                        placeholder="e.g. Damaged in transit..."
-                        style={{ resize: 'none' }}
-                    />
-                    </div>
-                )}
-            </div>
-  
-            <div className="modal-footer">
-              <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
-              <button 
-                type="submit" 
-                className="btn btn-primary" 
-                style={{ background: themeColor, border: 'none' }} 
-                disabled={submitting}
-              >
-                {submitting ? 'Processing...' : (isLoss ? 'Confirm Loss' : 'Add Stock')}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    );
-};
-
-// ==========================================
-// 3. MAIN COMPONENT: ITEM MASTER INDEX
-// ==========================================
 const ItemMasterIndex = () => {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
 
   // --- TAB STATE ---
+  // Options: 'master', 'stock', 'distribution', 'summary'
   const [activeTab, setActiveTab] = useState('master'); 
 
-  // --- MODAL STATES ---
+  // --- MODAL STATES (Master List Only) ---
   const [viewItem, setViewItem] = useState(null); 
-  const [historyItem, setHistoryItem] = useState(null); 
-  const [actionItem, setActionItem] = useState(null); 
 
   // --- FILTER & SORT STATE ---
   const [searchTerm, setSearchTerm] = useState('');
@@ -305,8 +130,7 @@ const ItemMasterIndex = () => {
     };
   }, []);
 
-  // Check if any modal is open to blur background
-  const isModalOpen = viewItem || historyItem || actionItem;
+  const isModalOpen = !!viewItem;
 
   return (
     <div className="dashboard-container">
@@ -341,6 +165,7 @@ const ItemMasterIndex = () => {
           box-shadow: 0 1px 3px rgba(0,0,0,0.05);
           width: 100%;
           transition: filter 0.3s ease;
+          overflow: visible;
         }
 
         /* --- MODERN FORM INPUTS --- */
@@ -366,12 +191,55 @@ const ItemMasterIndex = () => {
         .form-input::placeholder { color: #94a3b8; }
 
         /* --- TABS --- */
-        .tab-container { display: flex; gap: 10px; margin-bottom: 20px; }
-        .tab-btn {
-            padding: 10px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none; background: #e2e8f0; color: #64748b;
-            transition: all 0.2s;
+        .tab-container { 
+          display: flex; 
+          gap: 8px; 
+          margin-bottom: 20px; 
+          margin-top: 8px;
+          overflow: visible;
+          overflow-x: auto; 
+          padding-bottom: 8px;
+          padding-top: 8px;
+          padding-left: 4px;
+          padding-right: 4px;
+          flex-wrap: wrap;
+          width: 100%;
+          align-items: center;
         }
-        .tab-btn.active { background: var(--primary); color: white; box-shadow: 0 4px 6px -1px rgba(5, 150, 105, 0.3); }
+        .tab-btn {
+            padding: 12px 24px; 
+            border-radius: 8px; 
+            font-weight: 600; 
+            font-size: 14px; 
+            cursor: pointer; 
+            border: none; 
+            background: #e2e8f0; 
+            color: #64748b;
+            transition: all 0.2s; 
+            white-space: nowrap;
+            flex-shrink: 0;
+            height: auto;
+            min-height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1.5;
+            box-sizing: border-box;
+            overflow: visible;
+            margin: 2px;
+        }
+        .tab-btn:hover { 
+            background: #cbd5e1; 
+            transform: translateY(-1px);
+        }
+        .tab-btn.active { 
+            background: var(--primary); 
+            color: white; 
+            box-shadow: 0 4px 6px -1px rgba(5, 150, 105, 0.3); 
+        }
+        .tab-btn.active:hover {
+            background: var(--primary-hover);
+        }
 
         /* --- TABLE STYLES --- */
         .table-container { overflow-x: auto; border-radius: 8px; border: none; }
@@ -396,15 +264,12 @@ const ItemMasterIndex = () => {
             white-space: nowrap;
         }
         
-        /* Add Stock (Green) */
         .btn-add { color: #059669; border-color: #a7f3d0; background: #ecfdf5; }
         .btn-add:hover { background: #059669; color: white; border-color: #059669; }
         
-        /* Loss (Red) */
         .btn-loss { color: #ef4444; border-color: #fecaca; background: #fef2f2; }
         .btn-loss:hover { background: #ef4444; color: white; border-color: #ef4444; }
 
-        /* History (Gray) */
         .btn-history { color: #64748b; border-color: #cbd5e1; background: #f8fafc; }
         .btn-history:hover { background: #64748b; color: white; border-color: #64748b; }
 
@@ -474,21 +339,21 @@ const ItemMasterIndex = () => {
       `}</style>
 
       <div style={{width: '100%', margin: '0 auto'}}>
-        <h1 className="page-title">Item Master</h1>
+        <h1 className="page-title">Item Master & Inventory</h1>
 
         {/* --- TABS --- */}
         <div className="tab-container">
-            <button 
-                className={`tab-btn ${activeTab === 'master' ? 'active' : ''}`} 
-                onClick={() => setActiveTab('master')}
-            >
+            <button className={`tab-btn ${activeTab === 'master' ? 'active' : ''}`} onClick={() => setActiveTab('master')}>
                 Master List
             </button>
-            <button 
-                className={`tab-btn ${activeTab === 'stock' ? 'active' : ''}`} 
-                onClick={() => setActiveTab('stock')}
-            >
-                Stock Management
+            <button className={`tab-btn ${activeTab === 'stock' ? 'active' : ''}`} onClick={() => setActiveTab('stock')}>
+                Godown Management
+            </button>
+            <button className={`tab-btn ${activeTab === 'distribution' ? 'active' : ''}`} onClick={() => setActiveTab('distribution')}>
+                Party Distribution
+            </button>
+            <button className={`tab-btn ${activeTab === 'summary' ? 'active' : ''}`} onClick={() => setActiveTab('summary')}>
+                Stock Summary
             </button>
         </div>
 
@@ -499,62 +364,59 @@ const ItemMasterIndex = () => {
 
         <div ref={sentinelRef} style={{ height: '1px', marginBottom: '-1px' }} />
 
-        {/* --- STICKY FILTER CARD (Parent Level) --- */}
-        {/* FIX: Only render this global filter if we are on tabs that use the parent's filtered data */}
-        {(activeTab === 'master' || activeTab === 'stock') && (
+        {/* --- STICKY FILTER CARD (GLOBAL) --- */}
+        {/* Render filters for all tabs to ensure consistent searching */}
+        <div 
+            ref={wrapperRef} 
+            style={{ 
+            height: isPinned ? cardMetrics.height : 'auto',
+            marginBottom: '24px',
+            position: 'relative'
+            }}
+        >
             <div 
-              ref={wrapperRef} 
-              style={{ 
-                height: isPinned ? cardMetrics.height : 'auto',
-                marginBottom: '24px',
-                position: 'relative'
-              }}
+            ref={cardRef}
+            className="card" 
+            style={isPinned ? {
+                position: 'fixed', top: 0, left: cardMetrics.left, width: cardMetrics.width, 
+                zIndex: 1000, borderRadius: '0 0 12px 12px', 
+                boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
+                margin: 0, filter: isModalOpen ? 'blur(5px)' : 'none', pointerEvents: isModalOpen ? 'none' : 'auto'
+            } : {
+                margin: 0, filter: isModalOpen ? 'blur(5px)' : 'none', pointerEvents: isModalOpen ? 'none' : 'auto'
+            }}
             >
-              <div 
-                ref={cardRef}
-                className="card" 
-                style={isPinned ? {
-                  position: 'fixed', top: 0, left: cardMetrics.left, width: cardMetrics.width, 
-                  zIndex: 1000, borderRadius: '0 0 12px 12px', 
-                  boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
-                  margin: 0, filter: isModalOpen ? 'blur(5px)' : 'none', pointerEvents: isModalOpen ? 'none' : 'auto'
-                } : {
-                  margin: 0, filter: isModalOpen ? 'blur(5px)' : 'none', pointerEvents: isModalOpen ? 'none' : 'auto'
-                }}
-              >
-                <div className="enquiry-form-grid">
-                  <div className="form-group">
-                    <label className="form-label">Search</label>
-                    <input type="text" className="form-input" placeholder="Name / HSN" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Sort By</label>
-                    <select className="form-input" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-                      <option value="id">ID</option>
-                      <option value="weight">Weight</option>
-                      <option value="size">Size</option>
-                      <option value="price">Price</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Order</label>
-                    <select className="form-input" value={sortOrder} onChange={(e) => setSortOrder(e.target.value)}>
-                      <option value="asc">Ascending (A-Z)</option>
-                      <option value="desc">Descending (Z-A)</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">&nbsp;</label>
-                    <button className="btn btn-secondary" style={{width: '100%'}} onClick={clearFilters}>Clear Filters</button>
-                  </div>
+            <div className="enquiry-form-grid">
+                <div className="form-group">
+                <label className="form-label">Search</label>
+                <input type="text" className="form-input" placeholder="Name / HSN" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                 </div>
-              </div>
+                <div className="form-group">
+                <label className="form-label">Sort By</label>
+                <select className="form-input" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                    <option value="id">ID</option>
+                    <option value="weight">Weight</option>
+                    <option value="size">Size</option>
+                    <option value="price">Price</option>
+                </select>
+                </div>
+                <div className="form-group">
+                <label className="form-label">Order</label>
+                <select className="form-input" value={sortOrder} onChange={(e) => setSortOrder(e.target.value)}>
+                    <option value="asc">Ascending (A-Z)</option>
+                    <option value="desc">Descending (Z-A)</option>
+                </select>
+                </div>
+                <div className="form-group">
+                <label className="form-label">&nbsp;</label>
+                <button className="btn btn-secondary" style={{width: '100%'}} onClick={clearFilters}>Clear Filters</button>
+                </div>
             </div>
-        )}
+            </div>
+        </div>
 
-        {/* --- CONTENT AREA --- */}
-        {activeTab === 'master' ? (
-            // Tab 1: Standard Table
+        {/* --- CONTENT AREA SWITCHER --- */}
+        {activeTab === 'master' && (
             <ItemMasterTable
                 data={filteredData}
                 loading={loading}
@@ -563,113 +425,31 @@ const ItemMasterIndex = () => {
                 viewItem={viewItem}
                 setViewItem={setViewItem}
             />
-        ) : (
-            // Tab 2: Stock Management Table
-            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                <div style={{ padding: '16px 24px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
-                    <h3 style={{ margin: 0, fontSize: '16px', color: '#334155' }}>Current Inventory & Actions</h3>
-                </div>
+        )}
+        
+        {activeTab === 'stock' && (
+            <StockManagementTab 
+                data={filteredData} 
+                loading={loading} 
+                onRefresh={() => fetchItems(true)} 
+                showToast={showToast}
+            />
+        )}
 
-                <div className="table-container" style={{ border: 'none', borderRadius: 0 }}>
-                    <table className="data-table">
-                        <thead>
-                            <tr>
-                                <th>Item Name</th>
-                                <th>HSN Code</th>
-                                <th>Size</th>
-                                <th className="text-center">Current Stock</th>
-                                <th style={{ width: '280px', textAlign: 'right', paddingRight: '24px' }}>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {loading ? (
-                                <tr><td colSpan="5" style={{textAlign:'center', padding: '40px'}}>Loading...</td></tr>
-                            ) : filteredData.length === 0 ? (
-                                <tr><td colSpan="5" style={{textAlign:'center', padding: '40px', color: '#94a3b8'}}>No items found.</td></tr>
-                            ) : (
-                                filteredData.map(item => {
-                                    return (
-                                        <tr key={item.id} className="hover:bg-slate-50">
-                                            <td className="p-4 font-semibold text-slate-700">{item.item_name}</td>
-                                            <td className="p-4 text-slate-600">{item.hsn_code || '-'}</td>
-                                            <td className="p-4 text-slate-600">{item.size || '-'}</td>
-                                            
-                                            <td className="p-4 text-center">
-                                                <span style={{ 
-                                                    background: '#f1f5f9', padding: '6px 12px', borderRadius: '6px', 
-                                                    fontWeight: '700', color: '#334155' 
-                                                }}>
-                                                    {item.current_stock || 0}
-                                                </span>
-                                            </td>
+        {activeTab === 'distribution' && (
+            <PartyDistributionTab 
+                data={filteredData}
+                loading={loading}
+            />
+        )}
 
-                                            <td className="p-4">
-                                                <div className="action-btn-group">
-                                                    <button 
-                                                        className="action-text-btn btn-add" 
-                                                        title="Add Stock"
-                                                        onClick={() => setActionItem({ item, mode: 'add' })}
-                                                    >
-                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                                                            <line x1="12" y1="5" x2="12" y2="19"></line>
-                                                            <line x1="5" y1="12" x2="19" y2="12"></line>
-                                                        </svg>
-                                                        Add New
-                                                    </button>
-
-                                                    <button 
-                                                        className="action-text-btn btn-loss" 
-                                                        title="Report Loss"
-                                                        onClick={() => setActionItem({ item, mode: 'loss' })}
-                                                    >
-                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                                                            <line x1="5" y1="12" x2="19" y2="12"></line>
-                                                        </svg>
-                                                        Add Loss
-                                                    </button>
-
-                                                    <button 
-                                                        className="action-text-btn btn-history" 
-                                                        title="View Log"
-                                                        onClick={() => setHistoryItem(item)}
-                                                    >
-                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                                            <circle cx="12" cy="12" r="10"></circle>
-                                                            <polyline points="12 6 12 12 16 14"></polyline>
-                                                        </svg>
-                                                        History
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    );
-                                })
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+        {activeTab === 'summary' && (
+            <StockSummaryTab 
+                data={filteredData}
+                loading={loading}
+            />
         )}
       </div>
-
-      {/* RENDER ACTION MODAL (Add / Loss) */}
-      {actionItem && (
-        <StockActionModal 
-            item={actionItem.item} 
-            mode={actionItem.mode}
-            onClose={() => setActionItem(null)} 
-            onSuccess={() => fetchItems(true)}
-            showToast={showToast}
-        />
-      )}
-
-      {/* RENDER HISTORY MODAL */}
-      {historyItem && (
-        <StockHistoryModal 
-          item={historyItem} 
-          onClose={() => setHistoryItem(null)} 
-        />
-      )}
 
       {toast.show && (
         <div className={`toast-notification ${toast.type === 'error' ? 'toast-error' : 'toast-success'}`}>
@@ -677,7 +457,6 @@ const ItemMasterIndex = () => {
         </div>
       )}
     </div>
-    
   );
 };
 

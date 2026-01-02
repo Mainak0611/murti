@@ -43,7 +43,16 @@ export const getMyItems = async (req, res) => {
 
   try {
     const rows = await itemSql.findItemsByBranchId(branchId); 
-    return res.status(200).json({ data: rows });
+    
+    // Add party_stock for each item
+    const itemsWithPartyStock = await Promise.all(
+      rows.map(async (item) => {
+        const partyStock = await itemSql.getTotalPartyStock(item.id, branchId);
+        return { ...item, party_stock: partyStock };
+      })
+    );
+    
+    return res.status(200).json({ data: itemsWithPartyStock });
   } catch (err) {
     console.error('getMyItems error:', err);
     return res.status(500).json({ error: 'Server error fetching items' });
@@ -219,5 +228,36 @@ export const getItemLogs = async (req, res) => {
     } catch (err) {
         console.error('getItemLogs error:', err);
         return res.status(500).json({ error: 'Server error fetching logs' });
+    }
+};
+
+// =========================================================
+// PARTY DISTRIBUTION ENDPOINTS
+// =========================================================
+
+export const getPartyDistribution = async (req, res) => {
+    const branchId = req.user.branch_id;
+    const { itemId } = req.params;
+
+    try {
+        const item = await itemSql.findItemById(itemId);
+        if (!item) return res.status(404).json({ error: 'Item not found' });
+        if (String(item.branch_id) !== String(branchId)) return res.status(403).json({ error: 'Forbidden' });
+
+        const distribution = await itemSql.getPartyDistributionByItem(itemId, branchId);
+        const totalPartyStock = await itemSql.getTotalPartyStock(itemId, branchId);
+        
+        return res.status(200).json({ 
+            data: {
+                parties: distribution,
+                total_party_stock: totalPartyStock,
+                item_name: item.item_name,
+                item_size: item.size,
+                godown_stock: item.current_stock
+            }
+        });
+    } catch (err) {
+        console.error('getPartyDistribution error:', err);
+        return res.status(500).json({ error: 'Server error fetching party distribution' });
     }
 };

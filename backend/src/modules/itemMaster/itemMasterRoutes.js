@@ -8,7 +8,8 @@ import {
   // --- NEW IMPORTS ---
   addStock,
   reportLoss,
-  getItemLogs
+  getItemLogs,
+  getPartyDistribution
 } from './itemMasterService.js';
 import { protect, restrictTo } from '../../middleware/authMiddleware.js';
 
@@ -28,6 +29,8 @@ router.get('/', protect, restrictTo(READ_ACCESS), getMyItems);
 router.get('/:id', protect, restrictTo(READ_ACCESS), getItemById);
 // New Route: Get History
 router.get('/:id/logs', protect, restrictTo(READ_ACCESS), getItemLogs);
+// New Route: Get Party Distribution
+router.get('/:itemId/distribution/parties', protect, restrictTo(READ_ACCESS), getPartyDistribution);
 
 // WRITE Routes: Strictly for 'item_master'
 router.post('/', protect, restrictTo('item_master'), createItem);

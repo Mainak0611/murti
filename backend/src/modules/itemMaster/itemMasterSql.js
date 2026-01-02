@@ -99,3 +99,68 @@ export const findLogsByItemId = async (itemId) => {
     const { rows } = await pool.query(sql, [itemId]);
     return rows;
 };
+
+// =========================================================
+// PARTY DISTRIBUTION FUNCTIONS
+// =========================================================
+
+// 1. Get all party distribution for an item with party details
+export const getPartyDistributionByItem = async (itemId, branchId) => {
+    const sql = `
+        SELECT 
+            pd.id,
+            pd.party_id,
+            pd.party_name,
+            pd.quantity,
+            pd.updated_at,
+            pm.contact_no,
+            pm.firm_name
+        FROM public.party_distribution pd
+        LEFT JOIN public.party_master pm ON pd.party_id = pm.id
+        WHERE pd.item_id = $1 AND pd.branch_id = $2 AND pd.quantity > 0
+        ORDER BY pd.party_name ASC
+    `;
+    const { rows } = await pool.query(sql, [itemId, branchId]);
+    return rows;
+};
+
+// 2. Get total quantity of an item across all parties (for display in tab)
+export const getTotalPartyStock = async (itemId, branchId) => {
+    const sql = `
+        SELECT COALESCE(SUM(quantity), 0) as total_party_stock
+        FROM public.party_distribution
+        WHERE item_id = $1 AND branch_id = $2 AND quantity > 0
+    `;
+    const { rows } = await pool.query(sql, [itemId, branchId]);
+    return rows[0]?.total_party_stock || 0;
+};
+
+// 3. Add or update party distribution (used when dispatching)
+export const upsertPartyDistribution = async ({ branchId, partyId, partyName, itemId, quantityChange }) => {
+    const sql = `
+        INSERT INTO public.party_distribution (branch_id, party_id, party_name, item_id, quantity)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (branch_id, party_id, item_id) 
+        DO UPDATE SET quantity = quantity + EXCLUDED.quantity
+        RETURNING *
+    `;
+    const { rows } = await pool.query(sql, [branchId, partyId, partyName, itemId, quantityChange]);
+    return rows[0];
+};
+
+// 4. Get party distribution by ID (for validation)
+export const getPartyDistributionById = async (id) => {
+    const sql = `SELECT * FROM public.party_distribution WHERE id = $1`;
+    const { rows } = await pool.query(sql, [id]);
+    return rows[0];
+};
+
+// 5. Get party stock for a specific item-party combination
+export const getPartyStock = async (itemId, partyId, branchId) => {
+    const sql = `
+        SELECT quantity FROM public.party_distribution
+        WHERE item_id = $1 AND party_id = $2 AND branch_id = $3
+    `;
+    const { rows } = await pool.query(sql, [itemId, partyId, branchId]);
+    return rows[0]?.quantity || 0;
+};
