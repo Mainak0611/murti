@@ -1,5 +1,5 @@
 // frontend/src/components/Sidebar.jsx
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
 const Sidebar = ({ isMobileOpen, setIsMobileOpen }) => {
@@ -13,6 +13,17 @@ const Sidebar = ({ isMobileOpen, setIsMobileOpen }) => {
             setIsCollapsed(!isCollapsed);
         }
     };
+
+    useEffect(() => {
+        const handleResize = () => {
+            if (window.innerWidth < 768) {
+                setIsCollapsed(false);
+            }
+        };
+        window.addEventListener('resize', handleResize);
+        handleResize();
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
 
     // --- 1. MAPPING: Sidebar ID -> Backend Module Key ---
     // FIXED: These now match your Supabase DB 'module_key' values exactly
