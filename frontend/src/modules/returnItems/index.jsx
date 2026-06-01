@@ -118,7 +118,7 @@ const ReturnItemIndex = () => {
     };
   }, []);
 
-  const shouldPin = isPinned && window.innerWidth >= 768;
+  const shouldPin = isPinned && window.innerWidth >= 768 && window.innerHeight >= 600;
 
   return (
     <div className="dashboard-container">
