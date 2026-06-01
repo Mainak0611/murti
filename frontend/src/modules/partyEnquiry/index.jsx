@@ -135,6 +135,8 @@ const PartyEnquiryIndex = () => {
     };
   }, []);
 
+  const shouldPin = isPinned && window.innerWidth >= 768;
+
   return (
     <div className="dashboard-container">
       {/* GLOBAL STYLES */}
@@ -235,7 +237,7 @@ const PartyEnquiryIndex = () => {
         <div 
           ref={wrapperRef} 
           style={{ 
-            height: isPinned ? cardMetrics.height : 'auto',
+            height: shouldPin ? cardMetrics.height : 'auto',
             marginBottom: '24px',
             position: 'relative',
             overflow: 'visible'
@@ -244,7 +246,7 @@ const PartyEnquiryIndex = () => {
           <div 
             ref={cardRef}
             className="card" 
-            style={isPinned ? {
+            style={shouldPin ? {
               position: 'fixed',
               top: 0,
               left: cardMetrics.left,  

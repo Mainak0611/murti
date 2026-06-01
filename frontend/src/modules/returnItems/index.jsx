@@ -118,6 +118,8 @@ const ReturnItemIndex = () => {
     };
   }, []);
 
+  const shouldPin = isPinned && window.innerWidth >= 768;
+
   return (
     <div className="dashboard-container">
       <style>{`
@@ -131,10 +133,11 @@ const ReturnItemIndex = () => {
         .form-label { font-size: 13px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; }
         .form-input { padding: 10px; border: 1px solid var(--border); border-radius: 6px; width: 100%; font-size: 14px; }
         .form-input:focus { outline: 2px solid var(--primary); border-color: transparent; }
-        .btn { padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none; transition: all 0.2s; white-space: nowrap; }
+        .btn { padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none; transition: all 0.2s; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; justify-content: center; }
         .btn-primary { background: var(--primary); color: white; }
         .btn-primary:hover { background: var(--primary-hover); }
         .btn-secondary { background: #f1f5f9; color: var(--text-muted); border: 1px solid var(--border); }
+        .btn-secondary:hover { background: #e2e8f0; color: var(--text-main); }
         .table-container { overflow-x: auto; border-radius: 8px; border: none; }
         .data-table { width: 100%; border-collapse: collapse; font-size: 15px; text-align: left; }
         .data-table th { background: #f8fafc; color: var(--text-muted); font-weight: 600; padding: 12px 16px; font-size: 12px; text-transform: uppercase; }
@@ -142,6 +145,63 @@ const ReturnItemIndex = () => {
         .toast-notification { position: fixed; bottom: 24px; right: 24px; padding: 12px 20px; border-radius: 8px; color: white; font-weight: 600; box-shadow: 0 4px 6px rgba(0,0,0,0.1); z-index: 2000; animation: slideIn 0.3s ease-out; }
         .toast-success { background-color: var(--primary); }
         .toast-error { background-color: var(--danger); }
+
+        .scanner-container {
+          background: #f8fafc;
+          border: 2px dashed #cbd5e1;
+          border-radius: 8px;
+          padding: 16px;
+          margin-bottom: 20px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .scanner-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 16px;
+        }
+        .scanner-actions {
+          display: flex;
+          gap: 8px;
+        }
+
+        @media (max-width: 1024px) {
+          .enquiry-form-grid {
+            grid-template-columns: repeat(2, 1fr);
+          }
+        }
+        @media (max-width: 768px) {
+          .dashboard-container {
+            padding: 20px 10px;
+          }
+          .page-title {
+            font-size: 24px;
+            margin-bottom: 16px;
+          }
+          .card {
+            padding: 16px;
+          }
+        }
+        @media (max-width: 640px) {
+          .enquiry-form-grid {
+            grid-template-columns: 1fr;
+          }
+          .scanner-header {
+            flex-direction: column;
+            align-items: stretch;
+          }
+          .scanner-actions {
+            flex-direction: row;
+            justify-content: stretch;
+          }
+          .scanner-actions .btn {
+            flex: 1;
+            justify-content: center;
+          }
+        }
+
         @keyframes slideIn { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
       `}</style>
 
@@ -152,8 +212,8 @@ const ReturnItemIndex = () => {
 
         <div ref={sentinelRef} style={{ height: '1px', marginBottom: '-1px', marginTop: '80px' }} />
 
-        <div ref={wrapperRef} style={{ height: isPinned ? cardMetrics.height : 'auto', marginBottom: '24px', position: 'relative', overflow: 'visible' }}>
-          <div ref={cardRef} className="card" style={isPinned ? { position: 'fixed', top: 0, left: cardMetrics.left, width: cardMetrics.width, zIndex: 1000, borderRadius: '0 0 12px 12px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)', margin: 0, overflow: 'visible' } : { margin: 0, overflow: 'visible' }}>
+        <div ref={wrapperRef} style={{ height: shouldPin ? cardMetrics.height : 'auto', marginBottom: '24px', position: 'relative', overflow: 'visible' }}>
+          <div ref={cardRef} className="card" style={shouldPin ? { position: 'fixed', top: 0, left: cardMetrics.left, width: cardMetrics.width, zIndex: 1000, borderRadius: '0 0 12px 12px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)', margin: 0, overflow: 'visible' } : { margin: 0, overflow: 'visible' }}>
             <div className="enquiry-form-grid">
               <div className="form-group">
                 <label className="form-label">Search</label>

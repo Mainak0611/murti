@@ -9,6 +9,22 @@ import PaymentTables from "./PaymentTables";
 // Styles
 import "./HomePage.css";
 
+const normalizeRole = (value) => (typeof value === 'string' ? value.trim().toLowerCase().replace(/\s+/g, '_') : '');
+
+const getTokenPayload = () => {
+  try {
+    const token = localStorage.getItem('userToken');
+    if (!token) return null;
+
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+
+    return JSON.parse(atob(parts[1]));
+  } catch (e) {
+    return null;
+  }
+};
+
 // --- 1. Helper to try Local Storage first (Optimization) ---
 const getStoredUser = () => {
     try {
@@ -26,9 +42,30 @@ const getStoredUser = () => {
     return null;
 };
 
+const getInitialUser = () => {
+    const payload = getTokenPayload();
+  const storedUser = getStoredUser();
+
+  if (payload) {
+    return {
+      ...(storedUser || {}),
+      role: payload.role,
+      permissions: Array.isArray(payload.permissions)
+        ? payload.permissions
+        : (storedUser?.permissions || []),
+      userId: payload.userId || storedUser?.userId,
+      userName: payload.userName || storedUser?.userName,
+    };
+  }
+
+  if (storedUser) return storedUser;
+
+  return null;
+};
+
 export default function HomePage() {
   // --- STATE ---
-  const [user, setUser] = useState(getStoredUser()); // Initialize with storage if available
+  const [user, setUser] = useState(getInitialUser()); // Initialize with storage or token if available
   const [loading, setLoading] = useState(true);
   
   // Dashboard Data State
@@ -39,7 +76,7 @@ export default function HomePage() {
 
   // --- DERIVED PERMISSIONS ---
   const perms = user?.permissions || [];
-  const role = user?.role || '';
+  const role = normalizeRole(user?.role);
 
   const showPayments = role === 'super_admin' || perms.includes('payment_records');
   const salesModules = ['party_enquiries', 'confirmed_orders', 'returns_module'];
@@ -77,7 +114,7 @@ export default function HomePage() {
 
         // Recalculate permissions with the fresh user object
         const currentPerms = currentUser.permissions || [];
-        const currentRole = currentUser.role || '';
+        const currentRole = normalizeRole(currentUser.role);
         
         const canViewPay = currentRole === 'super_admin' || currentPerms.includes('payment_records');
         const canViewEnq = currentRole === 'super_admin' || currentPerms.some(p => salesModules.includes(p));

@@ -8,6 +8,7 @@ import itemRoutes from "./modules/itemMaster/itemMasterRoutes.js"; // <--- Impor
 import orderRoutes from './modules/confirmedOrders/confirmedOrdersRoutes.js';
 import returnItemRoutes from './modules/returnItems/returnItemRoutes.js';
 import PartyMasterRoutes from "./modules/partyMaster/index.js";
+import gatePassRoutes from "./modules/gatePass/gatePassRoutes.js";
 
 import { protect } from "./middleware/authMiddleware.js";
 
@@ -33,6 +34,9 @@ const registerRoutes = (app) => {
 
   // Register Party Master routes
   app.use("/api/parties", PartyMasterRoutes);
+
+  // Register Gate Pass routes
+  app.use("/api/gate-pass", gatePassRoutes);
 };
 
 export default registerRoutes;

@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import Topbar from './Topbar';
 import Sidebar from './Sidebar';
 
 const Layout = ({ children }) => {
+    const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+
     return (
         <div className="app-layout">
             <style>{`
@@ -29,11 +31,34 @@ const Layout = ({ children }) => {
                        to allow full-width banners if needed */
                     position: relative;
                 }
+
+                /* Mobile sidebar backdrop */
+                .sidebar-backdrop {
+                    display: none;
+                }
+
+                @media (max-width: 768px) {
+                    .sidebar-backdrop {
+                        display: block;
+                        position: fixed;
+                        inset: 0;
+                        background-color: rgba(15, 23, 42, 0.4);
+                        backdrop-filter: blur(2px);
+                        z-index: 45;
+                    }
+                }
             `}</style>
 
-            <Sidebar />
+            {isMobileSidebarOpen && (
+                <div 
+                    className="sidebar-backdrop" 
+                    onClick={() => setIsMobileSidebarOpen(false)}
+                />
+            )}
+
+            <Sidebar isMobileOpen={isMobileSidebarOpen} setIsMobileOpen={setIsMobileSidebarOpen} />
             <div className="main-layout">
-                <Topbar />
+                <Topbar onToggleSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)} />
                 <main className="main-content">
                     {children}
                 </main>

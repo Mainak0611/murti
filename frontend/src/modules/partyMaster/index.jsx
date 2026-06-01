@@ -117,6 +117,8 @@ const PartyMasterIndex = () => {
     };
   }, []);
 
+  const shouldPin = isPinned && window.innerWidth >= 768;
+
   return (
     <div className="dashboard-container">
       <style>{`
@@ -193,7 +195,7 @@ const PartyMasterIndex = () => {
         <div 
           ref={wrapperRef} 
           style={{ 
-            height: isPinned ? cardMetrics.height : 'auto',
+            height: shouldPin ? cardMetrics.height : 'auto',
             marginBottom: '24px',
             position: 'relative'
           }}
@@ -201,7 +203,7 @@ const PartyMasterIndex = () => {
           <div 
             ref={cardRef}
             className="card" 
-            style={isPinned ? {
+            style={shouldPin ? {
               position: 'fixed', top: 0, left: cardMetrics.left, width: cardMetrics.width, 
               zIndex: 1000, borderRadius: '0 0 12px 12px', 
               boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',

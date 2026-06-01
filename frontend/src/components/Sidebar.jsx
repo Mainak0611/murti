@@ -2,12 +2,16 @@
 import React, { useState, useMemo } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
-const Sidebar = () => {
+const Sidebar = ({ isMobileOpen, setIsMobileOpen }) => {
     const [isCollapsed, setIsCollapsed] = useState(false);
     const location = useLocation();
 
     const toggleSidebar = () => {
-        setIsCollapsed(!isCollapsed);
+        if (window.innerWidth < 768) {
+            setIsMobileOpen(false);
+        } else {
+            setIsCollapsed(!isCollapsed);
+        }
     };
 
     // --- 1. MAPPING: Sidebar ID -> Backend Module Key ---
@@ -67,10 +71,6 @@ const Sidebar = () => {
 
     // --- 3. FILTER LOGIC ---
     const visibleMenuItems = useMemo(() => {
-        // Debugging: Print permissions to console to verify what the frontend sees
-        // console.log("User Role:", userRole);
-        // console.log("User Permissions:", userPermissions);
-
         return allMenuItems.filter(item => {
             // A. Always show Dashboard and Settings
             if (item.id === 'home' || item.id === 'settings') return true;
@@ -78,12 +78,11 @@ const Sidebar = () => {
             // B. Super Admin sees EVERYTHING
             if (userRole === 'super_admin') return true;
 
-            // C. Check Permissions
+            // D. Check Permissions
             const requiredKey = MODULE_PERMISSIONS[item.id];
             
             if (requiredKey) {
                 const hasAccess = userPermissions.includes(requiredKey);
-                // console.log(`Module: ${item.id}, Required: ${requiredKey}, Access: ${hasAccess}`);
                 return hasAccess;
             }
 
@@ -97,7 +96,7 @@ const Sidebar = () => {
     };
 
     return (
-        <div className={`sidebar ${isCollapsed ? 'collapsed' : ''}`}>
+        <div className={`sidebar ${isCollapsed ? 'collapsed' : ''} ${isMobileOpen ? 'mobile-open' : ''}`}>
             <style>{`
                 :root {
                     --sidebar-bg: #0f172a;       /* Slate 900 */
@@ -113,7 +112,7 @@ const Sidebar = () => {
                     background-color: var(--sidebar-bg);
                     color: var(--sidebar-text);
                     width: 260px;
-                    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
                     display: flex;
                     flex-direction: column;
                     border-right: 1px solid var(--sidebar-border);
@@ -121,6 +120,19 @@ const Sidebar = () => {
                     top: 0;
                     flex-shrink: 0;
                     z-index: 50;
+                }
+
+                @media (max-width: 768px) {
+                    .sidebar {
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        bottom: 0;
+                        transform: translateX(-100%);
+                    }
+                    .sidebar.mobile-open {
+                        transform: translateX(0);
+                    }
                 }
 
                 .sidebar.collapsed {
@@ -350,6 +362,7 @@ function getIcon(name) {
         case 'check-square': return <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>;
         case 'check-circle': return <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>;
         case 'file': return <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>;
+        case 'scan': return <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="7" y1="12" x2="17" y2="12"/></svg>;
         case 'chart': return <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>;
         case 'cog': return <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>;
         default: return null;

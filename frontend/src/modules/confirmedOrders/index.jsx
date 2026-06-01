@@ -162,6 +162,114 @@ const SearchableSelect = ({ options, value, onChange, placeholder, labelKey = 'n
   );
 };
 
+// --- FUZZY SCORING MATCHING FUNCTION FOR SCANNED ITEMS ---
+const cleanString = (str) => (str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+const getBaseName = (name, size) => {
+  const cName = cleanString(name);
+  const cSize = cleanString(size);
+  if (cSize && cName.includes(cSize)) {
+    // Remove size from name if name contains the size
+    return cName.replace(cSize, '').trim();
+  }
+  return cName;
+};
+
+const parseNumbers = (sizeStr) => {
+  if (!sizeStr) return [];
+  const matches = sizeStr.match(/\d+(?:\.\d+)?/g);
+  if (!matches) return [];
+  return matches.map(Number);
+};
+
+const getLevenshteinSimilarity = (s1, s2) => {
+  if (s1 === s2) return 1.0;
+  if (!s1 || !s2) return 0.0;
+  
+  const len1 = s1.length;
+  const len2 = s2.length;
+  const maxLen = Math.max(len1, len2);
+  if (maxLen === 0) return 1.0;
+  
+  const matrix = [];
+  for (let i = 0; i <= len1; i++) {
+    matrix[i] = [i];
+  }
+  for (let j = 0; j <= len2; j++) {
+    matrix[0][j] = j;
+  }
+  
+  for (let i = 1; i <= len1; i++) {
+    for (let j = 1; j <= len2; j++) {
+      if (s1[i - 1] === s2[j - 1]) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j] + 1, // deletion
+          matrix[i][j - 1] + 1, // insertion
+          matrix[i - 1][j - 1] + 1 // substitution
+        );
+      }
+    }
+  }
+  
+  return 1.0 - matrix[len1][len2] / maxLen;
+};
+
+const matchExtractedItem = (extItem, targetItems, isDispatch = false) => {
+  const extBaseName = cleanString(extItem.item);
+  const extSize = extItem.size || '';
+  const extNums = parseNumbers(extSize);
+
+  let bestMatchIdx = -1;
+  let highestScore = 0;
+
+  for (let idx = 0; idx < targetItems.length; idx++) {
+    const targetItem = targetItems[idx];
+    const targetFullName = (isDispatch ? targetItem.item_name : targetItem.itemName) || '';
+    const targetSize = targetItem.size || '';
+    
+    const targetBaseName = getBaseName(targetFullName, targetSize);
+    const targetNums = parseNumbers(targetSize);
+
+    // 1. Check Name Similarity
+    const nameSimilarity = getLevenshteinSimilarity(extBaseName, targetBaseName);
+    if (nameSimilarity < 0.7) {
+      continue; // Name mismatch - skip
+    }
+
+    // 2. Check Size Match
+    let sizeMatched = false;
+    let sizeBonus = 0;
+
+    if (extNums.length === 0 && targetNums.length === 0) {
+      sizeMatched = true;
+      sizeBonus = 5;
+    } else if (extNums.length > 0 && targetNums.length > 0) {
+      if (extNums.length === targetNums.length) {
+        const allEqual = extNums.every((val, index) => val === targetNums[index]);
+        if (allEqual) {
+          sizeMatched = true;
+          sizeBonus = 10;
+        }
+      }
+    }
+
+    if (!sizeMatched) {
+      continue; // Size mismatch - skip
+    }
+
+    // Calculate score
+    const score = nameSimilarity * 10 + sizeBonus;
+    if (score > highestScore) {
+      highestScore = score;
+      bestMatchIdx = idx;
+    }
+  }
+
+  return bestMatchIdx;
+};
+
 const OrdersIndex = () => {
   const navigate = useNavigate();
   const [orders, setOrders] = useState([]);
@@ -170,6 +278,49 @@ const OrdersIndex = () => {
 
   // --- MODAL STATE ---
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [scanning, setScanning] = useState(false);
+  const [scannedResults, setScannedResults] = useState(null);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
+  useEffect(() => {
+    if (!selectedOrder) {
+      setScannedResults(null);
+      setScanning(false);
+      setSelectedFile(null);
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+      setPreviewUrl(null);
+    }
+  }, [selectedOrder]);
+
+  const [progressIndex, setProgressIndex] = useState(0);
+
+  useEffect(() => {
+    let intervalId;
+    if (scanning) {
+      setProgressIndex(0);
+      intervalId = setInterval(() => {
+        setProgressIndex((prev) => (prev + 1) % 3);
+      }, 2000);
+    }
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [scanning]);
+
+  const progressMessages = [
+    "Uploading image...",
+    "Reading gate pass...",
+    "Extracting items..."
+  ];
   const [dispatchForm, setDispatchForm] = useState([]); 
   const [dispatchHistory, setDispatchHistory] = useState([]); 
   const [isSaving, setIsSaving] = useState(false);
@@ -995,7 +1146,7 @@ const generateExcel = async (type) => {
         setDispatchHistory(fullOrder.history || []); 
         
         if (fullOrder.items) {
-            setDispatchForm(fullOrder.items.map(item => ({
+          setDispatchForm(fullOrder.items.map(item => ({
                 id: item.id, 
                 item_name: item.item_name,
                 size: item.size,
@@ -1005,7 +1156,7 @@ const generateExcel = async (type) => {
                 prev_dispatched: item.dispatched_quantity || 0,
                 available_stock: item.current_stock || 0,
                 current_dispatch: '' 
-            })));
+          })));
         }
     } catch (err) {
         console.error("Error fetching details", err);
@@ -1026,6 +1177,78 @@ const generateExcel = async (type) => {
 
     updated[index].current_dispatch = val;
     setDispatchForm(updated);
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setSelectedFile(file);
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
+    setPreviewUrl(URL.createObjectURL(file));
+    setScannedResults(null);
+  };
+
+  const handleExtract = async () => {
+    if (!selectedFile) return;
+
+    const formData = new FormData();
+    formData.append('image', selectedFile);
+    formData.append('moduleType', 'DISPATCH');
+
+    setScanning(true);
+    setScannedResults(null);
+
+    try {
+      const response = await api.post('/api/gate-pass/extract', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      const extItems = response.data.items || [];
+      // Reset previous auto-filled/scanned values so they don't persist if matching fails now
+      const updatedForm = dispatchForm.map(item => ({
+        ...item,
+        current_dispatch: ''
+      }));
+      
+      const mappedResults = extItems.map(ext => {
+        const idx = matchExtractedItem(ext, updatedForm, true);
+        if (idx !== -1) {
+          const item = updatedForm[idx];
+          
+          // Calculate total dispatched for this item from history to find balance
+          const itemKey = item.item_name + '|' + (item.size || '');
+          const totalDispatched = dispatchHistory.reduce((sum, log) => {
+            const logKey = log.item_name + '|' + (log.size || '');
+            return logKey === itemKey ? sum + (log.quantity_sent || 0) : sum;
+          }, 0);
+          const balance = item.ordered_quantity - totalDispatched;
+          
+          // Prefill extracted quantity directly without clamping to balance/stocks
+          const finalQty = ext.qty !== null && ext.qty !== undefined ? ext.qty : '';
+          
+          updatedForm[idx] = {
+            ...item,
+            current_dispatch: finalQty
+          };
+          return { ...ext, matched: true };
+        }
+        return { ...ext, matched: false };
+      });
+
+      setDispatchForm(updatedForm);
+      setScannedResults(mappedResults);
+      showToast('Gate pass scanned and items matched successfully!', 'success');
+    } catch (err) {
+      console.error('Scan error:', err);
+      showToast(err.response?.data?.error || 'Failed to extract items from gate pass image', 'error');
+    } finally {
+      setScanning(false);
+    }
   };
 
   const isFormInvalid = useMemo(() => {
@@ -1077,6 +1300,12 @@ const generateExcel = async (type) => {
         setDispatchForm(dispatchForm.map(item => ({...item, current_dispatch: ''})));
         setDispatchDate(new Date().toISOString().split('T')[0]);
         setChallanNo('');
+        setSelectedFile(null);
+        if (previewUrl) {
+          URL.revokeObjectURL(previewUrl);
+        }
+        setPreviewUrl(null);
+        setScannedResults(null);
         
         // Refresh the selected order data
         try {
@@ -1425,7 +1654,7 @@ const generateExcel = async (type) => {
         .form-label { font-size: 13px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; }
         .form-input { padding: 10px; border: 1px solid var(--border); border-radius: 6px; width: 100%; font-size: 14px; }
         .form-input:focus { outline: 2px solid var(--primary); border-color: transparent; }
-        .btn { padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none; transition: all 0.2s; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px;}
+        .btn { padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none; transition: all 0.2s; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; justify-content: center;}
         .btn-primary { background: var(--primary); color: white; }
         .btn-primary:hover { background: var(--primary-hover); }
         .btn-primary:disabled { background: #cbd5e1; color: #64748b; cursor: not-allowed; opacity: 1; }
@@ -1458,8 +1687,127 @@ const generateExcel = async (type) => {
         .toast-error { background-color: var(--danger); }
         .history-table th { background: #f1f5f9; font-size: 11px; text-transform: uppercase; padding: 8px; text-align: left; color: #64748b; }
         .history-table td { font-size: 13px; padding: 8px; border-bottom: 1px solid #e2e8f0; color: #334155; }
+        
+        .filter-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; align-items: end; }
+        
+        .scanner-container {
+          background: #f8fafc;
+          border: 2px dashed #cbd5e1;
+          border-radius: 8px;
+          padding: 16px;
+          margin-bottom: 20px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .scanner-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 16px;
+        }
+        .scanner-actions {
+          display: flex;
+          gap: 8px;
+        }
+        .dispatch-info-box {
+          margin-bottom: 20px;
+          display: flex;
+          align-items: center;
+          gap: 20px;
+          background: #f8fafc;
+          padding: 15px;
+          border-radius: 8px;
+        }
+
+        @media (max-width: 1024px) {
+          .filter-grid {
+            grid-template-columns: 1fr 1fr;
+          }
+        }
+
+        @media (max-width: 768px) {
+          .dashboard-container {
+            padding: 20px 10px;
+          }
+          .page-title {
+            font-size: 24px;
+            margin-bottom: 16px;
+          }
+          .card {
+            padding: 16px;
+          }
+          .view-grid {
+            grid-template-columns: 1fr;
+            gap: 12px;
+          }
+          .large-modal {
+            width: 95%;
+            padding: 16px;
+            max-height: 95vh;
+          }
+        }
+
+        @media (max-width: 640px) {
+          .filter-grid {
+            grid-template-columns: 1fr;
+          }
+          .scanner-header {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 12px;
+          }
+          .scanner-actions {
+            flex-direction: row;
+            justify-content: stretch;
+          }
+          .scanner-actions .btn {
+            flex: 1;
+            justify-content: center;
+          }
+          .dispatch-info-box {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 12px;
+          }
+          .dispatch-info-box > div {
+            width: 100%;
+          }
+          .dispatch-info-box .form-input {
+            max-width: none !important;
+            width: 100%;
+          }
+        }
+
         @keyframes popIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
         @keyframes slideIn { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes loading-dots {
+          0% { opacity: .2; }
+          20% { opacity: 1; }
+          100% { opacity: .2; }
+        }
+        .loading-dots span {
+          animation-name: loading-dots;
+          animation-duration: 1.4s;
+          animation-iteration-count: infinite;
+          animation-fill-mode: both;
+        }
+        .loading-dots span:nth-child(2) {
+          animation-delay: .2s;
+        }
+        .loading-dots span:nth-child(3) {
+          animation-delay: .4s;
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .fade-in-container {
+          animation: fadeIn 0.4s ease-out forwards;
+        }
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
       `}</style>
 
       <div style={{width: '100%', margin: '0 auto'}}>
@@ -1467,7 +1815,7 @@ const generateExcel = async (type) => {
 
         {/* ... Search and Sort ... */}
         <div className="card">
-          <div style={{display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', alignItems: 'end'}}>
+          <div className="filter-grid">
             <div className="form-group">
               <label className="form-label">Search</label>
               <input type="text" className="form-input" placeholder="Party Name or Reference" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
@@ -1523,51 +1871,53 @@ const generateExcel = async (type) => {
                             </span>
                           </td>
                           <td>{order.contact_no || '-'}</td>
-                          <td onClick={(e) => e.stopPropagation()} style={{display: 'flex', gap: '8px', justifyContent: 'center'}}>
-                            <button 
-                              className="icon-btn"
-                              onClick={(e) => handleEditOrder(e, order)}
-                              title="Edit"
-                              style={{
-                                background: 'none',
-                                border: 'none',
-                                cursor: 'pointer',
-                                padding: '6px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                borderRadius: '6px',
-                                transition: 'background 0.2s',
-                                width: '32px',
-                                height: '32px'
-                              }}
-                              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#eff6ff'}
-                              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                            >
-                              <Icons.Pencil />
-                            </button>
-                            <button 
-                              className="icon-btn danger"
-                              onClick={(e) => initiateDeleteOrder(e, order.id)}
-                              title="Delete"
-                              style={{
-                                background: 'none',
-                                border: 'none',
-                                cursor: 'pointer',
-                                padding: '6px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                borderRadius: '6px',
-                                transition: 'background 0.2s',
-                                width: '32px',
-                                height: '32px'
-                              }}
-                              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fee2e2'}
-                              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                            >
-                              <Icons.Trash />
-                            </button>
+                          <td onClick={(e) => e.stopPropagation()} style={{ verticalAlign: 'middle', textAlign: 'center' }}>
+                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', alignItems: 'center' }}>
+                              <button 
+                                className="icon-btn"
+                                onClick={(e) => handleEditOrder(e, order)}
+                                title="Edit"
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  padding: '6px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  borderRadius: '6px',
+                                  transition: 'background 0.2s',
+                                  width: '32px',
+                                  height: '32px'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#eff6ff'}
+                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                              >
+                                <Icons.Pencil />
+                              </button>
+                              <button 
+                                className="icon-btn danger"
+                                onClick={(e) => initiateDeleteOrder(e, order.id)}
+                                title="Delete"
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  padding: '6px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  borderRadius: '6px',
+                                  transition: 'background 0.2s',
+                                  width: '32px',
+                                  height: '32px'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fee2e2'}
+                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                              >
+                                <Icons.Trash />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                     );
@@ -1631,7 +1981,7 @@ const generateExcel = async (type) => {
                 </button>
             </div>
 
-            <div style={{marginBottom: 20, display: 'flex', alignItems: 'center', gap: 20, background: '#f8fafc', padding: 15, borderRadius: 8}}>
+            <div className="dispatch-info-box">
                 <div>
                     <label style={{fontSize: 12, fontWeight: 700, color: '#334155', display: 'block', marginBottom: 4}}>Dispatch Date</label>
                     <input 
@@ -1670,6 +2020,108 @@ const generateExcel = async (type) => {
                 <div style={{fontSize: 13, color: '#64748b', marginTop: 16}}>
                     Use this date and challan no. to record when these items were sent from stock.
                 </div>
+            </div>
+
+            {/* --- Image Scanner Section --- */}
+            <div className="scanner-container">
+              <div className="scanner-header">
+                <div>
+                  <h5 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: '#334155' }}>
+                    📷 Scan handwritten dispatch gate pass
+                  </h5>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#64748b' }}>
+                    Take a photo or upload an image of the dispatch gate pass, preview it, and extract quantities.
+                  </p>
+                </div>
+                <div className="scanner-actions">
+                  <label className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', margin: 0, fontSize: '13px' }}>
+                    📷 Take Photo
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      onChange={handleFileChange}
+                      style={{ display: 'none' }}
+                      disabled={scanning}
+                    />
+                  </label>
+                  <label className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', margin: 0, fontSize: '13px' }}>
+                    📁 Select File
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFileChange}
+                      style={{ display: 'none' }}
+                      disabled={scanning}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {previewUrl && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center', background: '#fff', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                  <img 
+                    src={previewUrl} 
+                    alt="Gate pass preview" 
+                    style={{ maxWidth: '100%', maxHeight: '250px', borderRadius: '4px', objectFit: 'contain' }} 
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={handleExtract}
+                    disabled={scanning}
+                    style={{ minWidth: '120px' }}
+                  >
+                    {scanning ? (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
+                        ⏳ Extracting
+                        <span className="loading-dots">
+                          <span>.</span><span>.</span><span>.</span>
+                        </span>
+                      </span>
+                    ) : (
+                      '🔍 Extract Text'
+                    )}
+                  </button>
+                </div>
+              )}
+
+              {scanning && (
+                <div style={{ color: '#059669', fontWeight: '600', fontSize: '14px', textAlign: 'center', margin: '8px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                  <span className="spinner" style={{ display: 'inline-block', width: '16px', height: '16px', border: '2px solid #059669', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                  <span>⏳ {progressMessages[progressIndex]}</span>
+                </div>
+              )}
+
+              {scannedResults && scannedResults.length > 0 && (
+                <div className="fade-in-container" style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '12px' }}>
+                  <h6 style={{ margin: '0 0 8px 0', fontSize: '12px', fontWeight: '700', color: '#475569', textTransform: 'uppercase' }}>
+                    Scanned Extracted Items:
+                  </h6>
+                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                    {scannedResults.map((res, i) => (
+                      <div key={i} style={{ 
+                        background: '#f1f5f9', 
+                        padding: '6px 12px', 
+                        borderRadius: '4px', 
+                        fontSize: '13px', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '6px',
+                        border: res.matched ? '1px solid #bbf7d0' : '1px solid #e2e8f0',
+                        color: res.matched ? '#15803d' : '#475569',
+                        fontWeight: res.matched ? '600' : 'normal'
+                      }}>
+                        <span>{res.item} {res.size ? `(${res.size})` : ''}</span>
+                        <strong style={{ background: res.matched ? '#dcfce7' : '#cbd5e1', padding: '2px 6px', borderRadius: '3px', fontSize: '11px' }}>
+                          Qty: {res.qty}
+                        </strong>
+                        {res.matched ? '✅' : '❓'}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <h4 style={{fontSize: 14, fontWeight: 700, marginBottom: 12, color: '#334155'}}>Dispatch Management</h4>

@@ -615,6 +615,8 @@ function PaymentTracker() {
     };
   }, []);
 
+  const shouldPin = isPinned && window.innerWidth >= 768;
+
   return (
     <div className="dashboard-container">
       <style>{`
@@ -802,7 +804,7 @@ function PaymentTracker() {
         ref={wrapperRef} 
         style={{ 
           // Dynamic height prevents the table from jumping up
-          height: isPinned ? cardMetrics.height : 'auto',
+          height: shouldPin ? cardMetrics.height : 'auto',
           marginBottom: '24px',
           position: 'relative' // Keeps context
         }}
@@ -810,7 +812,7 @@ function PaymentTracker() {
         <div 
           ref={cardRef}
           className="card filter-card"
-          style={isPinned ? {
+          style={shouldPin ? {
             position: 'fixed',
             top: 0,
             left: cardMetrics.left,  // Precise alignment
