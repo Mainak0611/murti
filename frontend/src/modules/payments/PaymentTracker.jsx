@@ -6,6 +6,13 @@ import {
   getStatusDisplay
 } from "./PaymentUtils.js";
 
+const getCurrentMonthString = () => {
+  const currentDate = new Date();
+  const currentMonth = currentDate.toLocaleString('default', { month: 'long' });
+  const currentYear = currentDate.getFullYear();
+  return `${currentMonth} ${currentYear}`;
+};
+
 function PaymentTracker() {
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -14,7 +21,7 @@ function PaymentTracker() {
 
   // --- FILTER STATES ---
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterMonth, setFilterMonth] = useState('ALL');
+  const [filterMonth, setFilterMonth] = useState(getCurrentMonthString());
   const [filterStatus, setFilterStatus] = useState('ALL');
   const [sortOrder, setSortOrder] = useState('none');
 
@@ -193,17 +200,11 @@ function PaymentTracker() {
     fetchPayments();
   }, []);
 
-  // Set the default filterMonth to the current month and year
-  useEffect(() => {
-    const currentDate = new Date();
-    const currentMonth = currentDate.toLocaleString('default', { month: 'long' });
-    const currentYear = currentDate.getFullYear();
-    setFilterMonth(`${currentMonth} ${currentYear}`);
-  }, []);
-
   const availableMonths = useMemo(() => {
     const unique = new Set();
     payments.forEach(p => { if (p.month && p.year) unique.add(`${p.month} ${p.year}`); });
+    // Always include current month in selection list
+    unique.add(getCurrentMonthString());
     return Array.from(unique);
   }, [payments]);
 
@@ -551,7 +552,7 @@ function PaymentTracker() {
   // --- CLEAR FILTERS ---
   const clearAllFilters = () => {
     setSearchTerm('');
-    setFilterMonth('ALL');
+    setFilterMonth(getCurrentMonthString());
     setFilterStatus('ALL');
     setSortOrder('none');
 
@@ -843,7 +844,6 @@ function PaymentTracker() {
           <div className="form-group">
             <label className="form-label">Filter Month</label>
             <select className="form-select" value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)}>
-              <option value="ALL">All Months</option>
               {availableMonths.map(m => (<option key={m} value={m}>{m}</option>))}
             </select>
           </div>
