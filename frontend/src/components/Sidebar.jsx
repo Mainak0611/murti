@@ -32,6 +32,7 @@ const Sidebar = ({ isMobileOpen, setIsMobileOpen }) => {
         'party-enquiries': 'party_enquiries', // DB has 'party_enquiries' (plural)
         'orders': 'confirmed_orders',         // DB has 'confirmed_orders'
         'completed-orders': 'completed_orders', // DB has 'completed_orders'
+        'dispatch-items': 'dispatch_items',   // DB has 'dispatch_items'
         'returns': 'returns_module',          // DB has 'returns_module'
         'item-master': 'item_master',         // DB has 'item_master'
         'party-master': 'party_master',       // DB has 'party_master'
@@ -74,6 +75,7 @@ const Sidebar = ({ isMobileOpen, setIsMobileOpen }) => {
         { id: 'party-enquiries', title: 'Party Enquiries', path: '/party-enquiries', icon: 'file' },
         { id: 'orders', title: 'Confirmed Orders', path: '/confirmed-orders', icon: 'check-square' },
         { id: 'completed-orders', title: 'Completed Orders', path: '/completed-orders', icon: 'check-circle' },
+        { id: 'dispatch-items', title: 'Dispatch Items', path: '/dispatch-items', icon: 'scan' },
         { id: 'returns', title: 'Return Items', path: '/returns', icon: 'check-square' },
         { id: 'item-master', title: 'Item Master', path: '/item-master', icon: 'chart' },
         { id: 'party-master', title: 'Party Master', path: '/party-master', icon: 'file' },

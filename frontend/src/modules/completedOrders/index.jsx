@@ -765,58 +765,89 @@ const CompletedOrders = () => {
 
             <h4 style={{fontSize: 14, fontWeight: 700, marginBottom: 12, color: '#334155'}}>Dispatch Management</h4>
             <div style={{overflowX: 'auto'}}>
-              <table className="items-table" style={{minWidth: 900}}>
-                <tbody>
-                  <tr>
-                    <th style={{background:'#f8fafc', textAlign:'center'}}>Item Name</th>
-                    {dispatchForm.map((item, idx) => (
-                      <td key={item.id || idx} style={{fontWeight:700, textAlign:'center'}}>{item.item_name}</td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <th style={{background:'#f8fafc', textAlign:'center'}}>Size</th>
-                    {dispatchForm.map((item, idx) => (
-                      <td key={item.id || idx} style={{textAlign:'center'}}>{item.size || '-'}</td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <th style={{background:'#f8fafc', textAlign:'center'}}>Ordered</th>
-                    {dispatchForm.map((item, idx) => (
-                      <td key={item.id || idx} style={{fontWeight:600, textAlign:'center'}}>{item.ordered_quantity}</td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <th style={{background:'#f8fafc', textAlign:'center'}}>Total Weight</th>
-                    {dispatchForm.map((item, idx) => (
-                      <td key={item.id || idx} style={{fontWeight:600, color:'#475569', textAlign:'center'}}>
-                        {formatWeight(item.total_weight || (item.unit_weight * item.ordered_quantity))}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <th style={{background:'#f8fafc', color:'#64748b', textAlign:'center'}}>Prev. Sent</th>
-                    {dispatchForm.map((item, idx) => (
-                      <td key={item.id || idx} style={{color:'#64748b', background:'#f8fafc', textAlign:'center'}}>{item.prev_dispatched}</td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <th style={{background:'#f8fafc', color:'#f59e0b', textAlign:'center', fontWeight:'bold'}}>Balance</th>
-                    {dispatchForm.map((item, idx) => {
-                      const balance = item.ordered_quantity - item.prev_dispatched;
-                      return <td key={item.id || idx} style={{fontWeight:'bold', color:'#92400e', background:'#fef3c7', textAlign:'center'}}>{balance}</td>;
-                    })}
-                  </tr>
-                  <tr>
-                    <th style={{background:'#f8fafc', color:'#f59e0b', textAlign:'center', fontWeight:'bold'}}>Balance Weight</th>
-                    {dispatchForm.map((item, idx) => {
-                      const balance = item.ordered_quantity - item.prev_dispatched;
-                      const balanceWeight = balance * (parseFloat(item.unit_weight) || 0);
-                      return <td key={item.id || idx} style={{fontWeight:'bold', color:'#92400e', background:'#fef3c7', textAlign:'center'}}>{formatWeight(balanceWeight)}</td>;
-                    })}
-                  </tr>
-                  {/* Avail Stock and Input Rows hidden/disabled for clean history view */}
-                </tbody>
-              </table>
+              {(() => {
+                const totalOrdered = dispatchForm.reduce((sum, item) => sum + (item.ordered_quantity || 0), 0);
+                const totalWeight = dispatchForm.reduce((sum, item) => sum + (parseFloat(item.total_weight || (item.unit_weight * item.ordered_quantity)) || 0), 0);
+                const totalPrevSent = dispatchForm.reduce((sum, item) => sum + (item.prev_dispatched || 0), 0);
+                const totalBalance = dispatchForm.reduce((sum, item) => sum + ((item.ordered_quantity - item.prev_dispatched) || 0), 0);
+                const totalBalanceWeight = dispatchForm.reduce((sum, item) => {
+                  const balance = item.ordered_quantity - item.prev_dispatched;
+                  const balanceWeight = balance * (parseFloat(item.unit_weight) || 0);
+                  return sum + balanceWeight;
+                }, 0);
+
+                return (
+                  <table className="items-table" style={{width: '100%', minWidth: 900, borderCollapse: 'collapse', border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden'}}>
+                    <thead>
+                      <tr style={{backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0'}}>
+                        <th style={{padding: '14px 11px', textAlign: 'left', fontWeight: '700', color: '#475569', fontSize: '15px', whiteSpace: 'nowrap'}}>ITEM NAME</th>
+                        <th style={{padding: '14px 9px', textAlign: 'center', fontWeight: '700', color: '#475569', fontSize: '15px'}}>SIZE</th>
+                        <th style={{padding: '14px 9px', textAlign: 'center', fontWeight: '700', color: '#475569', fontSize: '15px'}}>ORDERED</th>
+                        <th style={{padding: '14px 9px', textAlign: 'center', fontWeight: '700', color: '#475569', fontSize: '15px'}}>TOTAL WEIGHT</th>
+                        <th style={{padding: '14px 9px', textAlign: 'center', fontWeight: '700', color: '#475569', fontSize: '15px'}}>PREV. SENT</th>
+                        <th style={{padding: '14px 9px', textAlign: 'center', fontWeight: '700', color: '#92400e', backgroundColor: '#fef3c7', fontSize: '15px'}}>BALANCE</th>
+                        <th style={{padding: '14px 9px', textAlign: 'center', fontWeight: '700', color: '#92400e', backgroundColor: '#fef3c7', fontSize: '15px'}}>BALANCE WEIGHT</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dispatchForm.map((item, idx) => {
+                        const balance = item.ordered_quantity - item.prev_dispatched;
+                        const balanceWeight = balance * (parseFloat(item.unit_weight) || 0);
+
+                        return (
+                          <tr key={item.id || idx} style={{borderBottom: '1px solid #f1f5f9', backgroundColor: idx % 2 === 0 ? '#fff' : '#f9fafb'}}>
+                            <td style={{padding: '14px 11px', color: '#334155', fontWeight: '600', fontSize: '15px', whiteSpace: 'nowrap'}}>
+                              {item.item_name}
+                            </td>
+                            <td style={{padding: '14px 9px', textAlign: 'center', color: '#475569', fontSize: '15px'}}>
+                              {item.size || '-'}
+                            </td>
+                            <td style={{padding: '14px 9px', textAlign: 'center', color: '#475569', fontSize: '15px', fontWeight: '600'}}>
+                              {item.ordered_quantity}
+                            </td>
+                            <td style={{padding: '14px 9px', textAlign: 'center', color: '#475569', fontSize: '15px'}}>
+                              {formatWeight(item.total_weight || (item.unit_weight * item.ordered_quantity))}
+                            </td>
+                            <td style={{padding: '14px 9px', textAlign: 'center', color: '#475569', fontSize: '15px'}}>
+                              {item.prev_dispatched}
+                            </td>
+                            <td style={{padding: '14px 9px', textAlign: 'center', color: '#92400e', backgroundColor: '#fef3c7', fontWeight: '700', fontSize: '15px'}}>
+                              {balance}
+                            </td>
+                            <td style={{padding: '14px 9px', textAlign: 'center', color: '#92400e', backgroundColor: '#fef3c7', fontWeight: '700', fontSize: '15px'}}>
+                              {formatWeight(balanceWeight)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {/* TOTAL Row */}
+                      <tr style={{borderTop: '2px solid #e2e8f0', backgroundColor: '#f8fafc'}}>
+                        <td style={{padding: '14px 11px', color: '#334155', fontWeight: '700', fontSize: '15px'}}>
+                          TOTAL
+                        </td>
+                        <td style={{padding: '14px 9px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '15px'}}>
+                          -
+                        </td>
+                        <td style={{padding: '14px 9px', textAlign: 'center', color: '#334155', fontWeight: '700', fontSize: '15px'}}>
+                          {totalOrdered}
+                        </td>
+                        <td style={{padding: '14px 9px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '15px'}}>
+                          {formatWeight(totalWeight)}
+                        </td>
+                        <td style={{padding: '14px 9px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '15px'}}>
+                          {totalPrevSent}
+                        </td>
+                        <td style={{padding: '14px 9px', textAlign: 'center', color: '#92400e', backgroundColor: '#fef3c7', fontWeight: '700', fontSize: '15px'}}>
+                          {totalBalance}
+                        </td>
+                        <td style={{padding: '14px 9px', textAlign: 'center', color: '#92400e', backgroundColor: '#fef3c7', fontWeight: '700', fontSize: '15px'}}>
+                          {formatWeight(totalBalanceWeight)}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                );
+              })()}
             </div>
 
             {/* History Table */}

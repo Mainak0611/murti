@@ -21,9 +21,9 @@ export const createOrderDirectly = async (req, res) => {
     });
 
     const createdOrder = await orderSql.findOrderById(orderId);
-    return res.status(201).json({ 
-      message: 'Order created successfully', 
-      data: createdOrder 
+    return res.status(201).json({
+      message: 'Order created successfully',
+      data: createdOrder
     });
   } catch (err) {
     console.error('createOrderDirectly error:', err);
@@ -73,7 +73,7 @@ export const getOrderById = async (req, res) => {
 
   try {
     const order = await orderSql.findOrderById(id);
-    
+
     if (!order) {
       return res.status(404).json({ error: 'Order not found' });
     }
@@ -115,9 +115,9 @@ export const updateDispatch = async (req, res) => {
 
     // 4. Return success (and maybe the updated order to refresh UI)
     const updatedOrder = await orderSql.findOrderById(id);
-    return res.status(200).json({ 
-      message: 'Dispatch updated successfully', 
-      data: updatedOrder 
+    return res.status(200).json({
+      message: 'Dispatch updated successfully',
+      data: updatedOrder
     });
 
   } catch (err) {
@@ -151,9 +151,9 @@ export const updateOrder = async (req, res) => {
 
     // 4. Return success
     const updatedOrder = await orderSql.findOrderById(id);
-    return res.status(200).json({ 
-      message: 'Order updated successfully', 
-      data: updatedOrder 
+    return res.status(200).json({
+      message: 'Order updated successfully',
+      data: updatedOrder
     });
 
   } catch (err) {
@@ -185,9 +185,9 @@ export const updateDispatchEntry = async (req, res) => {
 
     // 3. Return updated order
     const updatedOrder = await orderSql.findOrderById(id);
-    return res.status(200).json({ 
-      message: 'Dispatch entry updated successfully', 
-      data: updatedOrder 
+    return res.status(200).json({
+      message: 'Dispatch entry updated successfully',
+      data: updatedOrder
     });
 
   } catch (err) {
@@ -212,8 +212,8 @@ export const deleteOrder = async (req, res) => {
     // 2. Delete the order
     await orderSql.deleteOrder(id);
 
-    return res.status(200).json({ 
-      message: 'Order deleted successfully' 
+    return res.status(200).json({
+      message: 'Order deleted successfully'
     });
 
   } catch (err) {
@@ -240,14 +240,163 @@ export const deleteDispatchEntry = async (req, res) => {
 
     // 3. Return updated order
     const updatedOrder = await orderSql.findOrderById(id);
-    return res.status(200).json({ 
-      message: 'Dispatch entry deleted successfully', 
-      data: updatedOrder 
+    return res.status(200).json({
+      message: 'Dispatch entry deleted successfully',
+      data: updatedOrder
     });
 
   } catch (err) {
     console.error('deleteDispatchEntry error:', err);
     return res.status(500).json({ error: 'Server error deleting dispatch entry' });
+  }
+};
+
+export const getBranchDispatches = async (req, res) => {
+  const branchId = req.user.branch_id;
+  try {
+    const dispatches = await orderSql.findDispatchesByBranchId(branchId);
+    return res.status(200).json({ data: dispatches });
+  } catch (err) {
+    console.error('getBranchDispatches error:', err);
+    return res.status(500).json({ error: 'Server error fetching branch dispatches' });
+  }
+};
+
+export const createEstimate = async (req, res) => {
+  const userId = req.user.id;
+  const branchId = req.user.branch_id;
+  const { party_name, party_id, challan_no, estimate_date, items } = req.body;
+
+  if (!party_name || !challan_no || !estimate_date || !items || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'Invalid estimate data. Party name, challan number, date, and items are required.' });
+  }
+
+  try {
+    const isUnique = await orderSql.checkChallanUnique(branchId, challan_no);
+    if (!isUnique) {
+      return res.status(400).json({ error: `Challan number "${challan_no}" is already in use, enter different challan.` });
+    }
+
+    const estimateId = await orderSql.createEstimate(userId, branchId, {
+      party_name,
+      party_id,
+      challan_no,
+      estimate_date,
+      items
+    });
+
+    const createdEstimate = await orderSql.findEstimateById(estimateId);
+    return res.status(201).json({
+      message: 'Estimate created successfully',
+      data: createdEstimate
+    });
+  } catch (err) {
+    console.error('createEstimate error:', err);
+    return res.status(500).json({ error: 'Server error creating estimate' });
+  }
+};
+
+export const getEstimates = async (req, res) => {
+  const branchId = req.user.branch_id;
+  try {
+    const estimates = await orderSql.findEstimatesByBranch(branchId);
+    return res.status(200).json({ data: estimates });
+  } catch (err) {
+    console.error('getEstimates error:', err);
+    return res.status(500).json({ error: 'Server error fetching estimates' });
+  }
+};
+
+export const checkChallanNo = async (req, res) => {
+  const branchId = req.user.branch_id;
+  const { challan_no } = req.params;
+  const { excludeEstimateId } = req.query;
+
+  try {
+    const isUnique = await orderSql.checkChallanUnique(branchId, challan_no, excludeEstimateId);
+    return res.status(200).json({ available: isUnique });
+  } catch (err) {
+    console.error('checkChallanNo error:', err);
+    return res.status(500).json({ error: 'Server error checking challan number availability' });
+  }
+};
+
+export const getEstimateByChallanNo = async (req, res) => {
+  const branchId = req.user.branch_id;
+  const { challan_no } = req.params;
+
+  try {
+    const estimate = await orderSql.findEstimateByChallanNo(branchId, challan_no);
+    if (!estimate) {
+      return res.status(404).json({ error: 'Estimate not found with this challan number.' });
+    }
+    return res.status(200).json({ data: estimate });
+  } catch (err) {
+    console.error('getEstimateByChallanNo error:', err);
+    return res.status(500).json({ error: 'Server error fetching estimate by challan number' });
+  }
+};
+
+export const getEstimateById = async (req, res) => {
+  const branchId = req.user.branch_id;
+  const { id } = req.params;
+
+  try {
+    const estimate = await orderSql.findEstimateById(id);
+    if (!estimate) {
+      return res.status(404).json({ error: 'Estimate not found.' });
+    }
+    return res.status(200).json({ data: estimate });
+  } catch (err) {
+    console.error('getEstimateById error:', err);
+    return res.status(500).json({ error: 'Server error fetching estimate' });
+  }
+};
+
+export const updateEstimate = async (req, res) => {
+  const branchId = req.user.branch_id;
+  const { id } = req.params;
+  const { party_name, party_id, challan_no, estimate_date, items } = req.body;
+
+  if (!party_name || !challan_no || !estimate_date || !items || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'Invalid estimate data. Party name, challan number, date, and items are required.' });
+  }
+
+  try {
+    const estimate = await orderSql.findEstimateById(id);
+    if (!estimate) {
+      return res.status(404).json({ error: 'Estimate not found' });
+    }
+
+    const isUnique = await orderSql.checkChallanUnique(branchId, challan_no, id);
+    if (!isUnique) {
+      return res.status(400).json({ error: `Challan number "${challan_no}" is already in use in this branch.` });
+    }
+
+    await orderSql.updateEstimate(id, { party_name, party_id, challan_no, estimate_date, items });
+    const updatedEstimate = await orderSql.findEstimateById(id);
+    return res.status(200).json({
+      message: 'Estimate updated successfully',
+      data: updatedEstimate
+    });
+  } catch (err) {
+    console.error('updateEstimate error:', err);
+    return res.status(500).json({ error: 'Server error updating estimate' });
+  }
+};
+
+export const deleteEstimate = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const estimate = await orderSql.findEstimateById(id);
+    if (!estimate) {
+      return res.status(404).json({ error: 'Estimate not found' });
+    }
+    await orderSql.deleteEstimate(id);
+    return res.status(200).json({ message: 'Estimate deleted successfully' });
+  } catch (err) {
+    console.error('deleteEstimate error:', err);
+    return res.status(500).json({ error: 'Server error deleting estimate' });
   }
 };
 

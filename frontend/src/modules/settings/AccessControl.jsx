@@ -15,6 +15,7 @@ const AccessControlTab = () => {
         { key: 'completed_orders', label: 'Completed Orders', desc: 'View and review completed orders' },
         { key: 'party_enquiries', label: 'Party Enquiries', desc: 'Manage incoming enquiries and create orders' },
         { key: 'payment_records', label: 'Payment Records', desc: 'Track payments and merge records' },
+        { key: 'dispatch_items', label: 'Dispatch Items', desc: 'Directly manage items dispatch and challan logs' },
         { key: 'returns_module', label: 'Return Items', desc: 'Log and track returned goods' },
         { key: 'item_master', label: 'Item Master', desc: 'Add or edit inventory items' },
         { key: 'party_master', label: 'Party Master', desc: 'Manage clients and suppliers' }

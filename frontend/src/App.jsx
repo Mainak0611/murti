@@ -11,6 +11,7 @@ import PartyEnquiriesPage from "./modules/partyEnquiry/index.jsx";
 import ItemMaster from "./modules/itemMaster/index.jsx";
 import ConfirmedOrders from "./modules/confirmedOrders/index.jsx";
 import CompletedOrders from "./modules/completedOrders/index.jsx";
+import DispatchItems from "./modules/dispatchItems/index.jsx";
 import ReturnItems from "./modules/returnItems/index.jsx";
 import PartyMaster from "./modules/partyMaster/index.jsx";
 
@@ -117,10 +118,10 @@ function App() {
           <Route path="/item-master" element={<ItemMaster />} />
           <Route path="/party-master" element={<PartyMaster />} />
           
-          {/* Redirect generic auth paths back to dashboard if already logged in */}
           <Route path="/login" element={<Navigate to="/" replace />} /> 
           <Route path="/register" element={<Navigate to="/" replace />} />
           <Route path="/forgot-password" element={<Navigate to="/" replace />} />
+          <Route path="/dispatch-items" element={<DispatchItems />} />
           <Route path="/returns" element={<ReturnItems />} />
           
           {/* Catch-all redirect */}

@@ -25,6 +25,8 @@ const Topbar = ({ onToggleSidebar }) => {
         if (location.pathname.startsWith('/item-master')) return 'Item Master';
         if (location.pathname.startsWith('/party-master')) return 'Party Master';
         if (location.pathname.startsWith('/confirmed-orders')) return 'Confirmed Orders';
+        if (location.pathname.startsWith('/completed-orders')) return 'Completed Orders';
+        if (location.pathname.startsWith('/dispatch-items')) return 'Dispatch Items';
         if (location.pathname.startsWith('/returns')) return 'Return Items';
         return 'Dashboard';
     };
@@ -79,7 +81,7 @@ const Topbar = ({ onToggleSidebar }) => {
                 }
 
                 /* Action Buttons */
-                .icon-btn {
+                .topbar-icon-btn {
                     background: transparent;
                     border: none;
                     color: var(--text-muted);
@@ -90,12 +92,12 @@ const Topbar = ({ onToggleSidebar }) => {
                     transition: all 0.2s;
                 }
 
-                .icon-btn:hover {
+                .topbar-icon-btn:hover {
                     background: #f1f5f9;
                     color: var(--text-main);
                 }
 
-                .icon-btn.logout:hover {
+                .topbar-icon-btn.logout:hover {
                     background: #fef2f2;
                     color: var(--danger);
                 }
@@ -134,12 +136,12 @@ const Topbar = ({ onToggleSidebar }) => {
                 .btn-confirm { background: var(--danger); color: white; }
                 .btn-confirm:hover { background: #dc2626; }
 
-                .hamburger-btn {
+                .topbar-hamburger-btn {
                     display: none;
                 }
 
                 @media (max-width: 768px) {
-                    .hamburger-btn {
+                    .topbar-hamburger-btn {
                         display: flex;
                         align-items: center;
                         justify-content: center;
@@ -152,12 +154,12 @@ const Topbar = ({ onToggleSidebar }) => {
 
             <div className="topbar">
                 <div className="topbar-left">
-                    <button className="icon-btn hamburger-btn" onClick={onToggleSidebar} title="Menu">
+                    <button className="topbar-icon-btn topbar-hamburger-btn" onClick={onToggleSidebar} title="Menu">
                         <Icons.Menu />
                     </button>
                     {/* Only show Dashboard button if not on dashboard */}
                     {location.pathname !== '/' && (
-                        <button className="icon-btn" onClick={() => navigate('/')} title="Back to Dashboard">
+                        <button className="topbar-icon-btn" onClick={() => navigate('/')} title="Back to Dashboard">
                             <Icons.ArrowLeft />
                         </button>
                     )}
@@ -167,11 +169,11 @@ const Topbar = ({ onToggleSidebar }) => {
                 <div className="topbar-right">
                     {/* User Profile removed from here */}
                     
-                    <button className="icon-btn" onClick={() => navigate('/settings')} title="Settings">
+                    <button className="topbar-icon-btn" onClick={() => navigate('/settings')} title="Settings">
                         <Icons.Settings />
                     </button>
                     
-                    <button className="icon-btn logout" onClick={() => setIsLogoutModalOpen(true)} title="Logout">
+                    <button className="topbar-icon-btn logout" onClick={() => setIsLogoutModalOpen(true)} title="Logout">
                         <Icons.LogOut />
                     </button>
                 </div>

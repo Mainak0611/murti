@@ -88,6 +88,7 @@ export const findOrdersByPartyAndBranch = async (branchId, partyName) => {
       COALESCE(
         json_agg(
           json_build_object(
+            'id', oi.id,
             'item_id', oi.item_id,
             'item_name', i.item_name,
             'size', i.size,
@@ -256,6 +257,14 @@ export const updateDispatchQuantities = async (orderId, { dispatch_date, challan
     await client.query(
       `UPDATE public.orders SET status = $1 WHERE id = $2`, 
       [newStatus, orderId]
+    );
+
+    // Update matching estimate status to Dispatched
+    await client.query(
+      `UPDATE public.estimates 
+       SET status = 'Dispatched', updated_at = CURRENT_TIMESTAMP
+       WHERE branch_id = $1 AND LOWER(challan_no) = LOWER($2) AND status IN ('Pending', 'Approved')`,
+      [branch_id, challan_no]
     );
 
     await client.query('COMMIT');
@@ -488,6 +497,25 @@ export const updateDispatchEntry = async (orderId, challanNo, { dispatch_date, i
       );
     }
 
+    // Revert old challan estimate status
+    if (challanNo !== challan_no) {
+      await client.query(
+        `UPDATE public.estimates 
+         SET status = 'Approved', updated_at = CURRENT_TIMESTAMP
+         WHERE branch_id = (SELECT branch_id FROM public.orders WHERE id = $1) 
+           AND LOWER(challan_no) = LOWER($2) AND status = 'Dispatched'`,
+        [orderId, challanNo]
+      );
+      // Mark new challan estimate status as Dispatched
+      await client.query(
+        `UPDATE public.estimates 
+         SET status = 'Dispatched', updated_at = CURRENT_TIMESTAMP
+         WHERE branch_id = (SELECT branch_id FROM public.orders WHERE id = $1) 
+           AND LOWER(challan_no) = LOWER($2) AND status IN ('Pending', 'Approved')`,
+        [orderId, challan_no]
+      );
+    }
+
     await client.query('COMMIT');
     return true;
   } catch (e) {
@@ -576,6 +604,15 @@ export const deleteDispatchEntry = async (orderId, challanNo) => {
       [challanNo]
     );
 
+    // Restore estimate status to Approved
+    await client.query(
+      `UPDATE public.estimates 
+       SET status = 'Approved', updated_at = CURRENT_TIMESTAMP
+       WHERE branch_id = (SELECT branch_id FROM public.orders WHERE id = $1) 
+         AND LOWER(challan_no) = LOWER($2) AND status = 'Dispatched'`,
+      [orderId, challanNo]
+    );
+
     await client.query('COMMIT');
     return true;
   } catch (e) {
@@ -584,4 +621,319 @@ export const deleteDispatchEntry = async (orderId, challanNo) => {
   } finally {
     client.release();
   }
+};
+
+export const findDispatchesByBranchId = async (branchId) => {
+  const sql = `
+    SELECT 
+      dl.id,
+      dl.dispatch_date,
+      dl.challan_no,
+      dl.quantity_sent,
+      dl.total_weight,
+      i.item_name,
+      i.size,
+      o.party_name,
+      o.id as order_id
+    FROM public.dispatch_logs dl
+    JOIN public.order_items oi ON dl.order_item_id = oi.id
+    JOIN public.orders o ON oi.order_id = o.id
+    JOIN public.items i ON oi.item_id = i.id
+    WHERE o.branch_id = $1
+    ORDER BY dl.dispatch_date DESC, dl.created_at DESC
+  `;
+  const { rows } = await pool.query(sql, [branchId]);
+  return rows;
+};
+
+export const checkChallanUnique = async (branchId, challanNo, excludeEstimateId = null) => {
+  // 1. Check in estimates table
+  let estSql = `SELECT id FROM public.estimates WHERE branch_id = $1 AND LOWER(challan_no) = LOWER($2)`;
+  const estParams = [branchId, challanNo];
+  if (excludeEstimateId) {
+    estSql += ` AND id <> $3`;
+    estParams.push(excludeEstimateId);
+  }
+  const estRes = await pool.query(estSql, estParams);
+  if (estRes.rows.length > 0) {
+    return false;
+  }
+
+  // 2. Check in dispatch_logs table
+  const dispSql = `
+    SELECT dl.id 
+    FROM public.dispatch_logs dl
+    JOIN public.order_items oi ON dl.order_item_id = oi.id
+    JOIN public.orders o ON oi.order_id = o.id
+    WHERE o.branch_id = $1 AND LOWER(dl.challan_no) = LOWER($2)
+    LIMIT 1
+  `;
+  const dispRes = await pool.query(dispSql, [branchId, challanNo]);
+  if (dispRes.rows.length > 0) {
+    return false;
+  }
+
+  return true;
+};
+
+export const createEstimate = async (userId, branchId, { party_name, party_id, challan_no, estimate_date, items }) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Fetch party_id if not provided
+    let finalPartyId = party_id;
+    if (!finalPartyId && party_name) {
+      const partyRes = await client.query(
+        `SELECT id FROM public.party_master WHERE branch_id = $1 AND party_name = $2 LIMIT 1`,
+        [branchId, party_name]
+      );
+      finalPartyId = partyRes.rows[0]?.id || null;
+    }
+
+    // 2. Get unit weights for total weight calculation
+    const itemIds = items.map(i => i.item_id || i.itemId);
+    const itemsRes = await client.query(`
+      SELECT id, weight as unit_weight 
+      FROM public.items 
+      WHERE id = ANY($1)
+    `, [itemIds]);
+    
+    const itemWeightMap = {};
+    itemsRes.rows.forEach(row => {
+      itemWeightMap[row.id] = parseFloat(row.unit_weight) || 0;
+    });
+
+    let grandTotalWeight = 0;
+    const itemsWithWeights = items.map(item => {
+      const itemId = item.item_id || item.itemId;
+      const qty = parseInt(item.quantity) || 0;
+      const unitW = itemWeightMap[itemId] || 0;
+      const totalW = unitW * qty;
+      grandTotalWeight += totalW;
+      return { itemId, qty, totalW };
+    });
+
+    // 3. Insert into estimates
+    const insertEstSql = `
+      INSERT INTO public.estimates 
+        (branch_id, party_name, party_id, challan_no, estimate_date, total_weight, status)
+      VALUES 
+        ($1, $2, $3, $4, $5, $6, 'Pending')
+      RETURNING id;
+    `;
+    const estRes = await client.query(insertEstSql, [
+      branchId, party_name, finalPartyId, challan_no, estimate_date, grandTotalWeight
+    ]);
+    const estimateId = estRes.rows[0].id;
+
+    // 4. Insert into estimate_items
+    for (const item of itemsWithWeights) {
+      await client.query(`
+        INSERT INTO public.estimate_items 
+          (estimate_id, item_id, quantity, total_weight)
+        VALUES ($1, $2, $3, $4)
+      `, [estimateId, item.itemId, item.qty, item.totalW]);
+    }
+
+    await client.query('COMMIT');
+    return estimateId;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+export const findEstimatesByBranch = async (branchId) => {
+  const sql = `
+    SELECT 
+      e.id,
+      e.party_name,
+      e.party_id,
+      e.challan_no,
+      e.estimate_date,
+      e.total_weight,
+      e.status,
+      e.created_at,
+      COALESCE(
+        json_agg(
+          json_build_object(
+            'id', ei.id,
+            'item_id', ei.item_id,
+            'item_name', i.item_name,
+            'size', i.size,
+            'quantity', ei.quantity,
+            'unit_weight', i.weight,
+            'total_weight', ei.total_weight
+          ) ORDER BY i.item_name
+        ) FILTER (WHERE ei.id IS NOT NULL),
+        '[]'::json
+      ) as items
+    FROM public.estimates e
+    LEFT JOIN public.estimate_items ei ON e.id = ei.estimate_id
+    LEFT JOIN public.items i ON ei.item_id = i.id
+    WHERE e.branch_id = $1
+    GROUP BY e.id, e.party_name, e.party_id, e.challan_no, e.estimate_date, e.total_weight, e.status, e.created_at
+    ORDER BY e.estimate_date DESC, e.created_at DESC
+  `;
+  const { rows } = await pool.query(sql, [branchId]);
+  return rows;
+};
+
+export const findEstimateById = async (estimateId) => {
+  const sql = `
+    SELECT 
+      e.id,
+      e.party_name,
+      e.party_id,
+      e.challan_no,
+      e.estimate_date,
+      e.total_weight,
+      e.status,
+      e.created_at,
+      COALESCE(
+        json_agg(
+          json_build_object(
+            'id', ei.id,
+            'item_id', ei.item_id,
+            'item_name', i.item_name,
+            'size', i.size,
+            'quantity', ei.quantity,
+            'unit_weight', i.weight,
+            'total_weight', ei.total_weight
+          ) ORDER BY i.item_name
+        ) FILTER (WHERE ei.id IS NOT NULL),
+        '[]'::json
+      ) as items
+    FROM public.estimates e
+    LEFT JOIN public.estimate_items ei ON e.id = ei.estimate_id
+    LEFT JOIN public.items i ON ei.item_id = i.id
+    WHERE e.id = $1
+    GROUP BY e.id, e.party_name, e.party_id, e.challan_no, e.estimate_date, e.total_weight, e.status, e.created_at
+  `;
+  const { rows } = await pool.query(sql, [estimateId]);
+  return rows[0] || null;
+};
+
+export const findEstimateByChallanNo = async (branchId, challanNo) => {
+  const sql = `
+    SELECT 
+      e.id,
+      e.party_name,
+      e.party_id,
+      e.challan_no,
+      e.estimate_date,
+      e.total_weight,
+      e.status,
+      e.created_at,
+      COALESCE(
+        json_agg(
+          json_build_object(
+            'id', ei.id,
+            'item_id', ei.item_id,
+            'item_name', i.item_name,
+            'size', i.size,
+            'quantity', ei.quantity,
+            'unit_weight', i.weight,
+            'total_weight', ei.total_weight,
+            'current_stock', i.current_stock
+          ) ORDER BY i.item_name
+        ) FILTER (WHERE ei.id IS NOT NULL),
+        '[]'::json
+      ) as items
+    FROM public.estimates e
+    LEFT JOIN public.estimate_items ei ON e.id = ei.estimate_id
+    LEFT JOIN public.items i ON ei.item_id = i.id
+    WHERE e.branch_id = $1 AND LOWER(e.challan_no) = LOWER($2)
+    GROUP BY e.id, e.party_name, e.party_id, e.challan_no, e.estimate_date, e.total_weight, e.status, e.created_at
+  `;
+  const { rows } = await pool.query(sql, [branchId, challanNo]);
+  return rows[0] || null;
+};
+
+export const updateEstimate = async (estimateId, { party_name, party_id, challan_no, estimate_date, items }) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Fetch branch_id from the estimate
+    const estRes = await client.query(`SELECT branch_id FROM public.estimates WHERE id = $1`, [estimateId]);
+    if (estRes.rows.length === 0) {
+      throw new Error("Estimate not found");
+    }
+    const branchId = estRes.rows[0].branch_id;
+
+    // 2. Fetch party_id if not provided
+    let finalPartyId = party_id;
+    if (!finalPartyId && party_name) {
+      const partyRes = await client.query(
+        `SELECT id FROM public.party_master WHERE branch_id = $1 AND party_name = $2 LIMIT 1`,
+        [branchId, party_name]
+      );
+      finalPartyId = partyRes.rows[0]?.id || null;
+    }
+
+    // 3. Get unit weights for total weight calculation
+    const itemIds = items.map(i => i.item_id || i.itemId);
+    const itemsRes = await client.query(`
+      SELECT id, weight as unit_weight 
+      FROM public.items 
+      WHERE id = ANY($1)
+    `, [itemIds]);
+    
+    const itemWeightMap = {};
+    itemsRes.rows.forEach(row => {
+      itemWeightMap[row.id] = parseFloat(row.unit_weight) || 0;
+    });
+
+    let grandTotalWeight = 0;
+    const itemsWithWeights = items.map(item => {
+      const itemId = item.item_id || item.itemId;
+      const qty = parseInt(item.quantity) || 0;
+      const unitW = itemWeightMap[itemId] || 0;
+      const totalW = unitW * qty;
+      grandTotalWeight += totalW;
+      return { itemId, qty, totalW };
+    });
+
+    // 4. Update estimate header
+    await client.query(`
+      UPDATE public.estimates
+      SET party_name = $1,
+          party_id = $2,
+          challan_no = $3,
+          estimate_date = $4,
+          total_weight = $5,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $6
+    `, [party_name, finalPartyId, challan_no, estimate_date, grandTotalWeight, estimateId]);
+
+    // 5. Delete old items
+    await client.query(`DELETE FROM public.estimate_items WHERE estimate_id = $1`, [estimateId]);
+
+    // 6. Insert new items
+    for (const item of itemsWithWeights) {
+      await client.query(`
+        INSERT INTO public.estimate_items 
+          (estimate_id, item_id, quantity, total_weight)
+        VALUES ($1, $2, $3, $4)
+      `, [estimateId, item.itemId, item.qty, item.totalW]);
+    }
+
+    await client.query('COMMIT');
+    return true;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+export const deleteEstimate = async (estimateId) => {
+  const sql = `DELETE FROM public.estimates WHERE id = $1`;
+  await pool.query(sql, [estimateId]);
+  return true;
 };
